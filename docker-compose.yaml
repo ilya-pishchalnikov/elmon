@@ -1,0 +1,80 @@
+# docker-compose.yml
+services:
+    postgres-monitoring:
+        image: postgres:16
+        container_name: elmon-postgres-main
+        environment:
+            POSTGRES_DB: metrics
+            POSTGRES_USER: ${PG_METRICS_USER}
+            POSTGRES_PASSWORD: ${PG_METRICS_PASSWORD}
+            POSTGRES_HOST_AUTH_METHOD: md5
+        ports:
+            - "5432:5432"
+        volumes:
+            - postgres_data:/var/lib/postgresql/data
+        command: >
+            postgres -c shared_preload_libraries=pg_stat_statements
+        restart: unless-stopped
+        networks:
+            - elmon_network
+
+    # Test PostgreSQL
+    postgres-target:
+        image: postgres:16
+        container_name: elmon-postgres-target
+        environment:
+            POSTGRES_DB: application
+            POSTGRES_USER: ${PG_TEST_USER}
+            POSTGRES_PASSWORD: ${PG_TEST_PASSWORD}
+        ports:
+            - "5433:5432"
+        volumes:
+            - postgres_target_data:/var/lib/postgresql/data
+        restart: unless-stopped
+        networks:
+            - elmon_network
+
+    # Go-collector
+    metrics-collector:
+        container_name: elmon-metrics-collector
+        build:
+            context: src/elmon
+            dockerfile: Dockerfile
+        ports:
+            - "2025:8080"
+        environment:
+            CONFIG_PATH: /app/config.yaml
+        volumes:
+            - ./src/elmon/config.yaml:/app/config.yaml
+        depends_on:
+            - postgres-monitoring
+            - postgres-target
+        restart: unless-stopped
+        networks:
+            - elmon_network
+
+    # Grafana
+    grafana:
+        image: grafana/grafana:latest
+        container_name: elmon-grafana
+        ports:
+            - "3000:3000"
+        environment:
+            GF_SECURITY_ADMIN_USER: admin
+            GF_SECURITY_ADMIN_PASSWORD: ${GF_ADMIN_PASSWORD}
+        volumes:
+            - grafana_data:/var/lib/grafana
+            - ./src/grafana/dashboards:/etc/grafana/dashboards
+        depends_on:
+            - postgres-monitoring
+        networks:
+            - elmon_network
+
+volumes:
+    postgres_data:
+    postgres_target_data:
+    grafana_data:
+
+networks:
+    elmon_network:
+        driver: bridge
