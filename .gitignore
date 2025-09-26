@@ -30,3 +30,6 @@ go.work.sum
 # Editor/IDE
 # .idea/
 # .vscode/
+
+# elmon metrics collector config file
+src/elmon/config.yaml

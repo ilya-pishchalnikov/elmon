@@ -5,7 +5,7 @@ WORKDIR /app
 
 # Copy go.mod and go.sum for dependency caching
 COPY go.mod  ./
-# COPY go.sum ./
+COPY go.sum ./
 RUN go mod download
 
 # Copy application source code
