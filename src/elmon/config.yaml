@@ -4,18 +4,18 @@ metrics-db:
     user: "${METRICS_DB_USER}"
     password: "${METRICS_DB_PASSWORD}"
     dbname: "metrics"
-    host-auth-method: "md5"
-    ssl-mode: "disable"
-    max-open-connections: 100
-    max-idle-connections: 50
-    connection-max-lifetime: 3600
-    connection-max-idle-time: 1800
+    # host-auth-method: "md5"
+    # ssl-mode: "disable"
+    # max-open-connections: 100
+    # max-idle-connections: 50
+    # connection-max-lifetime: 3600
+    # connection-max-idle-time: 1800
 grafana:    
     url: "${METRICS_GRAFANA_URL}"
     token: "${METRICS_GRAFANA_TOKEN}"
-    timeout: 30
-server:
-    port: 8080
+    # timeout: 30
+# server:
+#     port: 8080
 log:
     level: "debug"
     format: "json"

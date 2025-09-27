@@ -11,9 +11,10 @@ import (
 )
 
 func main() {
-    config.Load("config.yaml");
-
-    var config = config.GetConfig();
+    config, err := config.Load("config.yaml");
+    if err!=nil {        
+        stdlog.Fatalf("error while reading config: %v", err)
+    }
 
     log, err := logger.NewByConfig(*config)
     if err!=nil {
@@ -24,7 +25,7 @@ func main() {
 
     log.Info("Application started")
 
-    db, err := sql.Connect(*log, config.MetircsDb);
+    db, err := sql.Connect(*log, config.MetricsDb);
     if err!=nil {
         log.Error(err, "error connecting metrics database server");
         stdlog.Fatalf("error while connecting metrics SQL server: %v", err)
