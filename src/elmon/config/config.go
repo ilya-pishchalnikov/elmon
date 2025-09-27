@@ -3,103 +3,173 @@ package config
 import (
 	"fmt"
 	"os"
+	"strings"
 	"sync"
 
-	"gopkg.in/yaml.v3" // Используем популярную библиотеку для YAML
+	"github.com/joho/godotenv"
+	"github.com/spf13/viper"
 )
 
 type DbConnectionConfig struct {
-	Host           string `yaml:"host"`
-	Port           int    `yaml:"port"`
-	User           string `yaml:"user"`
-	Password       string `yaml:"password"`
-	DbName         string `yaml:"dbname"`
-	HostAuthMethod string `yaml:"host-auth-method"`
-	SslMode        string `yaml:"ssl-mode"`
+	Host                  string `mapstructure:"host"`
+	Port                  int    `mapstructure:"port"`
+	User                  string `mapstructure:"user"`
+	Password              string `mapstructure:"password"`
+	DbName                string `mapstructure:"dbname"`
+	HostAuthMethod        string `mapstructure:"host-auth-method"`
+	SslMode               string `mapstructure:"ssl-mode"`
+	MaxOpenConnections    int    `mapstructure:"max-open-connections"`
+	MaxIdleConnections    int    `mapstructure:"max-idle-connections"`
+	ConnectionMaxLifetime int    `mapstructure:"connection-max-lifetime"`
+	ConnectionMaxIdleTime int    `mapstructure:"connection-max-idle-time"`
 }
 
 type GrafanaConfig struct {
-	Url     string `yaml:"url"`
-	Token   string `yaml:"token"`
-	Timeout int    `yaml:"timeout"`
+	Url     string `mapstructure:"url"`
+	Token   string `mapstructure:"token"`
+	Timeout int    `mapstructure:"timeout"`
 }
 
 type LogConfig struct {
-	Level    string `yaml:"level"`
-	Format   string `yaml:"format"`
-	FileName string `yaml:"file"`
+	Level    string `mapstructure:"level"`
+	Format   string `mapstructure:"format"`
+	FileName string `mapstructure:"file"`
 }
 
 type ServerConfig struct {
-	Port int `yaml:"port"`
+	Port int `mapstructure:"port"`
 }
 
-// Config represents the configuration structure.
-// Add all your configuration fields here.
-// yaml tags are used for unmarshalling the YAML file.
 type Config struct {
-	MetircsDb DbConnectionConfig `yaml:"metrics-db"`
-	Server    ServerConfig       `yaml:"server"`
-	Grafana   GrafanaConfig      `yaml:"grafana"`
-	Log       LogConfig          `yaml:"log"`
+	MetircsDb DbConnectionConfig `mapstructure:"metrics-db"`
+	Server    ServerConfig       `mapstructure:"server"`
+	Grafana   GrafanaConfig      `mapstructure:"grafana"`
+	Log       LogConfig          `mapstructure:"log"`
 }
 
-// configInstance holds the singleton instance of Config and a mutex for thread-safe lazy loading.
 type configInstance struct {
 	cfg  *Config
 	once sync.Once
-	err  error // To store error from first load
+	err  error
 }
 
-// globalConfig is the single instance of configInstance used throughout the application.
 var globalConfig configInstance
 
-// Load initializes the configuration by reading the YAML file at the specified path.
-// It uses sync.Once to ensure the file is read only once.
-// If config has already been loaded, it returns the cached instance.
-// If an error occurs during loading, it caches the error and returns it on subsequent calls.
-func Load(configFilePath string) (*Config, error) {
+// Load initializes the configuration using Viper with support for YAML and environment variables
+func Load( configFilePath string) (*Config, error) {
 	globalConfig.once.Do(func() {
-		data, err := os.ReadFile(configFilePath)
-		if err != nil {
+		// Load .env file if it exists (for secrets only)
+		if err := godotenv.Load(); err != nil {
+			fmt.Println(".env file not found, using system environment variables for secrets")
+		}
+
+		// Configure Viper
+		viper.SetConfigFile(configFilePath)
+		viper.SetConfigType("yaml")
+		
+		// Add paths to search for config files
+		viper.AddConfigPath(".")
+		viper.AddConfigPath("./config")
+		
+		// Enable environment variables support only for sensitive data
+		viper.AutomaticEnv()
+		
+		// Configure environment variables prefix
+		viper.SetEnvPrefix("METRICS")
+		viper.SetEnvKeyReplacer(strings.NewReplacer("-", "_"))
+		
+		// Read config file first (non-sensitive data remains in YAML)
+		if err := viper.ReadInConfig(); err != nil {
 			globalConfig.err = fmt.Errorf("failed to read config file '%s': %w", configFilePath, err)
+			fmt.Printf("failed to read config file '%s': %s/n", configFilePath, err.Error())
 			return
 		}
 
+		substituteEnvVars()
+
 		globalConfig.cfg = &Config{}
-		err = yaml.Unmarshal(data, globalConfig.cfg)
-		if err != nil {
-			globalConfig.err = fmt.Errorf("failed to unmarshal config file '%s': %w", configFilePath, err)
-			globalConfig.cfg = nil // Ensure no partial config is returned
+		if err := viper.Unmarshal(globalConfig.cfg); err != nil {
+			globalConfig.err = fmt.Errorf("failed to unmarshal config: %w", err)
+			fmt.Printf("failed to unmarshal config: %s/n", err.Error())
+			globalConfig.cfg = nil
 			return
 		}
-		fmt.Printf("Configuration loaded successfully from %s\n", configFilePath)
+
+		fmt.Printf("Config loaded from %s/n", configFilePath)
+		fmt.Println("Secrets loaded from environment variables with prefix: METRICS_")
 	})
 
 	return globalConfig.cfg, globalConfig.err
 }
 
-// GetConfig returns the loaded configuration.
-// It's a convenience function that assumes Load has already been called
-// or expects the caller to handle potential nil Config and errors.
-// It's often used after initial Load call has been performed and validated.
+// substituteEnvVars manually substitutes environment variables for sensitive fields
+func substituteEnvVars() {
+	// Database credentials
+	if dbUser := os.Getenv("METRICS_DB_USER"); dbUser != "" {
+		viper.Set("metrics-db.user", dbUser)
+	}
+	if dbPassword := os.Getenv("METRICS_DB_PASSWORD"); dbPassword != "" {
+		viper.Set("metrics-db.password", dbPassword)
+	}
+	if dbHost := os.Getenv("METRICS_DB_HOST"); dbHost != "" {
+		viper.Set("metrics-db.host", dbHost)
+	}
+	if dbName := os.Getenv("METRICS_DB_NAME"); dbName != "" {
+		viper.Set("metrics-db.dbname", dbName)
+	}
+
+	// Grafana token
+	if grafanaToken := os.Getenv("METRICS_GRAFANA_TOKEN"); grafanaToken != "" {
+		viper.Set("grafana.token", grafanaToken)
+	}
+	if grafanaUrl := os.Getenv("METRICS_GRAFANA_URL"); grafanaUrl != "" {
+		viper.Set("grafana.url", grafanaUrl)
+	}
+
+	// Log configuration
+	if logLevel := os.Getenv("METRICS_LOG_LEVEL"); logLevel != "" {
+		viper.Set("log.level", logLevel)
+	}
+}
+
+// GetConfig returns the loaded configuration
 func GetConfig() *Config {
-	// IMPORTANT: This function assumes that `Load` has been called
-	// and handled any potential errors.
-	// Callers should typically call `Load` once at application startup
-	// and then use `GetConfig` for subsequent accesses.
 	if globalConfig.err != nil {
-		// Log this or panic if it's an unrecoverable state,
-		// as GetConfig usually implies config is already valid.
-		fmt.Printf("Warning: GetConfig called but config loading previously failed: %v\n", globalConfig.err)
-		return nil // Or panic(globalConfig.err)
+		fmt.Printf("GetConfig called but config loading previously failed: %s/n", globalConfig.err.Error())
+		return nil
 	}
 	return globalConfig.cfg
 }
 
-// ClearCache is a helper function for testing purposes,
-// allowing to reset the singleton for fresh loading.
-// Do NOT use in production unless you have a very specific reason.
+// ClearCache resets the singleton for testing purposes
 func ClearCache() {
-	globalConfig = configInstance{} // Resets the once.Do and cached values
+	globalConfig = configInstance{}
+}
+
+// Validate performs basic configuration validation
+func (c *Config) Validate() error {
+	if c == nil {
+		return fmt.Errorf("config is nil")
+	}
+
+	// Validate database configuration
+	if c.MetircsDb.Host == "" {
+		return fmt.Errorf("database host is required")
+	}
+	if c.MetircsDb.Port <= 0 || c.MetircsDb.Port > 65535 {
+		return fmt.Errorf("invalid database port: %d", c.MetircsDb.Port)
+	}
+	if c.MetircsDb.User == "" {
+		return fmt.Errorf("database user is required")
+	}
+	if c.MetircsDb.DbName == "" {
+		return fmt.Errorf("database name is required")
+	}
+
+	// Validate server configuration
+	if c.Server.Port <= 0 || c.Server.Port > 65535 {
+		return fmt.Errorf("invalid server port: %d", c.Server.Port)
+	}
+
+	return nil
 }
