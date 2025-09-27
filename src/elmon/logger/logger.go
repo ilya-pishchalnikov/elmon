@@ -9,111 +9,106 @@ import (
 	"time"
 )
 
+// Logger provides a wrapper around slog.Logger.
 type Logger struct {
-    *slog.Logger
+	*slog.Logger
 }
 
-// New creates a new logger
+// New creates a new logger instance with specified level, format (JSON/text), and output file.
+// If logFileName is empty, output goes to os.Stdout.
+// Note: defer logFile.Close() is omitted for production-like long-lived loggers,
+// file closure should be handled at application shutdown.
 func New(level slog.Level, isJSON bool, logFileName string) (*Logger, error) {
-    opts := &slog.HandlerOptions{
-        Level: level,
-    }
+	opts := &slog.HandlerOptions{
+		Level: level,
+		// AddSource: true, // Uncomment to include file and line number in logs
+	}
 
-	writer := os.Stdout;
+	writer := os.Stdout
 
-	if logFileName!="" {
+	if logFileName != "" {
 		logFile, err := os.OpenFile(logFileName, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
 		if err != nil {
 			return nil, err
 		}
-		defer logFile.Close()
-
-		writer = logFile;
+		writer = logFile
 	}
-    
-    var handler slog.Handler
-    if isJSON {
-        handler = slog.NewJSONHandler(writer, opts)
-    } else {
-        handler = slog.NewTextHandler(writer, opts)
-    }
-    
-    return &Logger{Logger: slog.New(handler)} , nil
+
+	var handler slog.Handler
+	if isJSON {
+		handler = slog.NewJSONHandler(writer, opts)
+	} else {
+		handler = slog.NewTextHandler(writer, opts)
+	}
+
+	return &Logger{Logger: slog.New(handler)}, nil
 }
 
+// NewByConfig creates a new logger instance based on the provided configuration.
 func NewByConfig(config config.Config) (*Logger, error) {
-	var logFileName string = config.Log.FileName;
+	logFileName := config.Log.FileName
+	level := parseLevel(config.Log.Level)
+	isJson := config.Log.Format == "json"
 
-	var level slog.Level = parseLevel(config.Log.Level)
-
-	var isJson bool = config.Log.Format == "json";
-
-	logger, err := New (level, isJson, logFileName)
-
+	logger, err := New(level, isJson, logFileName)
 	return logger, err
 }
 
-// WithContext adds context to the logger
-func (l *Logger) WithContext(ctx context.Context) *Logger {
-    if ctx == nil {
-        return l
-    }
-    
-    // Extract values from context
-    if requestID, ok := ctx.Value("request_id").(string); ok {
-        return &Logger{l.With("request_id", requestID)}
-    }
-    
-    return l
+// Debug logs a debug-level message with additional key-value pairs.
+func (l *Logger) Debug(msg string, args ...any) {
+	l.log(slog.LevelDebug, msg, args...)
 }
 
-// Debug with additional information
-func (l *Logger) Debug(ctx context.Context, msg string, args ...any) {
-    l.WithContext(ctx).log(ctx, slog.LevelDebug, msg, args...)
+// Info logs an info-level message with additional key-value pairs.
+func (l *Logger) Info(msg string, args ...any) {
+	l.log(slog.LevelInfo, msg, args...)
 }
 
-// Info with additional information
-func (l *Logger) Info(ctx context.Context, msg string, args ...any) {
-    l.WithContext(ctx).log(ctx, slog.LevelInfo, msg, args...)
+// Warn logs a warning-level message with additional key-value pairs.
+func (l *Logger) Warn(msg string, args ...any) {
+	l.log(slog.LevelWarn, msg, args...)
 }
 
-// Warning with additional information
-func (l *Logger) Warn(ctx context.Context, msg string, args ...any) {
-    l.WithContext(ctx).log(ctx, slog.LevelWarn, msg, args...)
+// Error logs an error-level message with an error object and additional key-value pairs.
+func (l *Logger) Error(err error, msg string, args ...any) {
+	args = append(args, "error", err.Error())
+	l.log(slog.LevelError, msg, args...)
 }
 
-// Error with error information
-func (l *Logger) Error(ctx context.Context, err error, msg string, args ...any) {
-    args = append(args, "error", err.Error())
-    l.WithContext(ctx).log(ctx, slog.LevelError, msg, args...)
+// log is an internal method to handle the actual logging using slog.
+// It sets the call frame and passes context.Background() as a placeholder.
+func (l *Logger) log(level slog.Level, msg string, args ...any) {
+	// context.Background() is used as a placeholder, as public methods do not accept context.
+	// It's required by slog.Logger.Enabled and slog.Handler.Handle.
+	ctx := context.Background()
+
+	if !l.Enabled(ctx, level) {
+		return
+	}
+
+	var pcs [1]uintptr
+	// Skip 3 frames: runtime.Callers, l.log, and the public method (Debug/Info/Warn/Error).
+	runtime.Callers(3, pcs[:]) 
+
+	r := slog.NewRecord(time.Now(), level, msg, pcs[0])
+	r.Add(args...)
+
+	_ = l.Handler().Handle(ctx, r)
 }
 
-// log internal logging method
-func (l *Logger) log(ctx context.Context, level slog.Level, msg string, args ...any) {
-    if !l.Enabled(ctx, level) {
-        return
-    }
-    
-    var pcs [1]uintptr
-    runtime.Callers(3, pcs[:]) // skip log, public function, and this function
-    
-    r := slog.NewRecord(time.Now(), level, msg, pcs[0])
-    r.Add(args...)
-    
-    _ = l.Handler().Handle(ctx, r)
-}
-
+// parseLevel converts a string representation of a log level to slog.Level.
+// Defaults to slog.LevelInfo if the string is not recognized.
 func parseLevel(levelStr string) slog.Level {
-    switch levelStr {
-    case "debug":
-        return slog.LevelDebug
-    case "info":
-        return slog.LevelInfo
-    case "warn":
-        return slog.LevelWarn
-    case "error":
-        return slog.LevelError
-    default:
-        return slog.LevelInfo
-    }
+	switch levelStr {
+	case "debug":
+		return slog.LevelDebug
+	case "info":
+		return slog.LevelInfo
+	case "warn":
+		return slog.LevelWarn
+	case "error":
+		return slog.LevelError
+	default:
+		return slog.LevelInfo
+	}
 }

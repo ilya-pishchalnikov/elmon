@@ -8,18 +8,21 @@ import (
 	"gopkg.in/yaml.v3" // Используем популярную библиотеку для YAML
 )
 
+type DbConnectionConfig struct {
+	Host           string `yaml:"host"`
+	Port           int    `yaml:"port"`
+	User           string `yaml:"user"`
+	Password       string `yaml:"password"`
+	DbName         string `yaml:"dbname"`
+	HostAuthMethod string `yaml:"host-auth-method"`
+	SslMode        string `yaml:"ssl-mode"`
+}
+
 // Config represents the configuration structure.
 // Add all your configuration fields here.
 // yaml tags are used for unmarshalling the YAML file.
 type Config struct {
-	MetircsDb struct {
-		Host           string `yaml:"host"`
-		Port           int    `yaml:"port"`
-		User           string `yaml:"user"`
-		Password       string `yaml:"password"`
-		DbName         string `yaml:"dbname"`
-		HostAuthMethod string `yaml:"host-auth-method"`
-	} `yaml:"metrics-db"`
+	MetircsDb DbConnectionConfig `yaml:"metrics-db"`
 	Server struct {
 		Port string `yaml:"port"`
 	} `yaml:"server"`
