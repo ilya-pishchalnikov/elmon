@@ -100,11 +100,11 @@ begin
 end;
 $$ language plpgsql;
 
-create trigger trigger_server_modified_at
+create or replace trigger trigger_server_modified_at
     before update on server
     for each row execute function update_modified_at();
 
-create trigger trigger_credential_modified_at
+create or replace trigger trigger_credential_modified_at
     before update on credential
     for each row execute function update_modified_at();
 

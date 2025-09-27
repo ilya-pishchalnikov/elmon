@@ -18,19 +18,30 @@ type DbConnectionConfig struct {
 	SslMode        string `yaml:"ssl-mode"`
 }
 
+type GrafanaConfig struct {
+	Url     string `yaml:"url"`
+	Token   string `yaml:"token"`
+	Timeout int    `yaml:"timeout"`
+}
+
+type LogConfig struct {
+	Level    string `yaml:"level"`
+	Format   string `yaml:"format"`
+	FileName string `yaml:"file"`
+}
+
+type ServerConfig struct {
+	Port int `yaml:"port"`
+}
+
 // Config represents the configuration structure.
 // Add all your configuration fields here.
 // yaml tags are used for unmarshalling the YAML file.
 type Config struct {
 	MetircsDb DbConnectionConfig `yaml:"metrics-db"`
-	Server struct {
-		Port string `yaml:"port"`
-	} `yaml:"server"`
-	Log struct {
-		Level    string `yaml:"level"`
-		Format   string `yaml:"format"`
-		FileName string `yaml:"file"`
-	} `yaml:"log"`
+	Server    ServerConfig       `yaml:"server"`
+	Grafana   GrafanaConfig      `yaml:"grafana"`
+	Log       LogConfig          `yaml:"log"`
 }
 
 // configInstance holds the singleton instance of Config and a mutex for thread-safe lazy loading.
@@ -60,14 +71,6 @@ func Load(configFilePath string) (*Config, error) {
 		if err != nil {
 			globalConfig.err = fmt.Errorf("failed to unmarshal config file '%s': %w", configFilePath, err)
 			globalConfig.cfg = nil // Ensure no partial config is returned
-			return
-		}
-
-		// Optional: Perform any post-loading validation here
-		// For example, checking if required fields are present
-		if globalConfig.cfg.Server.Port == "" {
-			globalConfig.err = fmt.Errorf("config validation error: server port is not defined")
-			globalConfig.cfg = nil
 			return
 		}
 		fmt.Printf("Configuration loaded successfully from %s\n", configFilePath)

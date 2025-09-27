@@ -2,6 +2,7 @@ package main
 
 import (
 	"elmon/config"
+	"elmon/grafana"
 	"elmon/logger"
 	"elmon/sql"
 	stdlog "log"
@@ -52,7 +53,16 @@ func main() {
 		stdlog.Fatalf("failed to execute sql script: %v", err)
 	}
 
-	log.Info("Initial sql script executed successfully!")
-    
+	log.Info("Initial sql script executed successfully")
+
+    grafanaClient := grafana.NewClient(config.Grafana)
+
+    response, err := grafanaClient.Health(log)
+    if err!=nil {
+        log.Error(err, "failed to connect Grafana");
+    } else {
+        log.Info ("grafana connected")
+    }
+    defer response.Body.Close()
     
 }
