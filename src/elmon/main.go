@@ -6,6 +6,7 @@ import (
 	"elmon/grafana"
 	"elmon/logger"
 	"elmon/sql"
+	"fmt"
 	stdlog "log"
 	"log/slog"
 	"os"
@@ -23,10 +24,10 @@ func main() {
     }
 
     slog.SetDefault(log.Logger)
-    
+
     log.Info("Log started")
 
-    config, err := config.Load(log, "config.yaml");
+    conf, err := config.Load(log, "config.yaml");
     if err!=nil {        
         stdlog.Fatalf("error while reading config: %v", err)
     }
@@ -34,7 +35,7 @@ func main() {
     
     log.Info("Application config loaded")
 
-    db, err := sql.Connect(*log, config.MetricsDb);
+    db, err := sql.Connect(*log, conf.MetricsDb);
     if err!=nil {
         log.Error(err, "error connecting metrics database server");
         stdlog.Fatalf("error while connecting metrics SQL server: %v", err)
@@ -65,7 +66,7 @@ func main() {
 
 	log.Info("Initial sql script executed successfully")
 
-    grafanaClient := grafana.NewClient(config.Grafana)
+    grafanaClient := grafana.NewClient(conf.Grafana)
 
     response, err := grafanaClient.Health(log)
     if err!=nil {
@@ -74,5 +75,14 @@ func main() {
         log.Info ("grafana connected")
     }
     defer response.Body.Close()
-    
+
+    loader := config.NewMetricsConfigLoader(".")
+
+    metricsCfg, err := loader.Load(log, "configmetrics.yaml")
+	if err != nil {
+		log.Error(err, "Error loading metrics confgiruation")
+		stdlog.Fatalf("Fatal error loading metrics configuration: %v", err)
+	}
+
+    log.Info(fmt.Sprintf("Loaded metrics config version '%s'", metricsCfg.Version));   
 }

@@ -1,0 +1,72 @@
+# config.yaml
+
+# Fields from MetricsConfig
+version: "1.0"
+description: "Configuration for monitoring core database metrics"
+
+# Global field (GlobalConfig)
+global:
+  # Duration fields accept strings with units (1m, 10s)
+  default-interval: 30s
+  default-query-timeout: 15s
+  default-max-retries: 0
+  default-retry-delay: 1s
+
+# MetricGroups field (MetricGroup slice/array)
+metric-groups:
+  # --- First Group: DB Metrics (SQL) ---
+  - name: database_performance
+    description: Key metrics for database performance
+    enabled: true
+    
+    # Metrics field (Metric slice/array)
+    metrics:
+      - # Metric 1.1: Cache Hit Ratio
+        name: cache_hit_ratio
+        value-type: float # ValueTypeFloat
+        collection-type: sql # CollectionTypeSQL
+        sql-file: sql/script/metrics/database_perfomance/cache_hit.sql
+        
+        # Override global interval
+        interval: 1m
+        
+        # Override max retries count
+        max-retries: 5
+        
+        unit: "percent"
+
+      - # Metric 1.2: Total Transactions
+        name: total_transactions
+        value-type: int64 # ValueTypeInt64
+        collection-type: sql
+        sql-file: sql/script/metrics/database_perfomance/total_tx.sql
+        
+        # Explicitly setting MaxRetries to 0
+        max-retries: 0
+        
+  # --- Second Group: System Metrics (Go Function) ---
+  - name: system_health
+    description: Operating system health metrics
+    enabled: true
+    
+    metrics:
+      - # Metric 2.1: CPU Usage
+        name: cpu_load
+        value-type: float
+        collection-type: go_func # CollectionTypeGoFunc
+        go-function: "GetHostCPU" # Name of the Go function to call
+        
+        # Override query timeout
+        query-timeout: 5s
+        
+        unit: "percentage"
+
+      - # Metric 2.2: Is Host Up (boolean check)
+        name: host_status
+        description: Host accessibility check
+        value-type: bool # ValueTypeBool
+        collection-type: go_func
+        go-function: "IsHostReachable"
+        
+        # Override delay between retries
+        retry-delay: 1s
