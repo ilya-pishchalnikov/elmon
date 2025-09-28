@@ -1,6 +1,7 @@
 package config
 
 import (
+	"database/sql"
 	"elmon/logger"
 	"fmt"
 	"os"
@@ -13,17 +14,19 @@ import (
 )
 
 type DbConnectionConfig struct {
+	Name                  string `mapstructure:"name"`                   //default Host:Port_DbName
 	Host                  string `mapstructure:"host"`
 	Port                  int    `mapstructure:"port"`
 	User                  string `mapstructure:"user"`
 	Password              string `mapstructure:"password"`
 	DbName                string `mapstructure:"dbname"`
-	HostAuthMethod        string `mapstructure:"host-auth-method"` //default md5
-	SslMode               string `mapstructure:"ssl-mode"` // default disable
-	MaxOpenConnections    int    `mapstructure:"max-open-connections"` // default 100
-	MaxIdleConnections    int    `mapstructure:"max-idle-connections"` // default 50
+	HostAuthMethod        string `mapstructure:"host-auth-method"`        //default md5
+	SslMode               string `mapstructure:"ssl-mode"`                // default disable
+	MaxOpenConnections    int    `mapstructure:"max-open-connections"`    // default 100
+	MaxIdleConnections    int    `mapstructure:"max-idle-connections"`    // default 50
 	ConnectionMaxLifetime int    `mapstructure:"connection-max-lifetime"` // default 3600
 	ConnectionMaxIdleTime int    `mapstructure:"connection-max-idle-time"` //default 1800
+	SqlConnection         *sql.DB
 }
 
 type GrafanaConfig struct {
@@ -224,7 +227,11 @@ func (dbConnectionConfig *DbConnectionConfig) Validate(log *logger.Logger) error
 	} else if dbConnectionConfig.ConnectionMaxLifetime == 0 {
 		//default
 		dbConnectionConfig.ConnectionMaxLifetime = 3600
-	}	
+	}
+	
+	if dbConnectionConfig.Name == "" {
+		dbConnectionConfig.Name = fmt.Sprintf("%s:%d_%s", dbConnectionConfig.Host, dbConnectionConfig.Port, dbConnectionConfig.DbName)
+	}
 
 	return nil
 }

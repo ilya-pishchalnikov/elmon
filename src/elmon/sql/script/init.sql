@@ -79,7 +79,9 @@ create table if not exists metric (
 
     constraint pk_metric primary key (metric_id),
 
-    constraint fk_metric_metric_group_id foreign key (metric_group_id) references metric_group (metric_group_id)
+    constraint fk_metric_metric_group_id foreign key (metric_group_id) references metric_group (metric_group_id),
+
+    constraint uq_metric_metric_name unique (metric_name)
 );
 
 create table if not exists metric_value (
