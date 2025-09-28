@@ -2,6 +2,7 @@ package main
 
 import (
 	"elmon/config"
+	"elmon/configlog"
 	"elmon/grafana"
 	"elmon/logger"
 	"elmon/sql"
@@ -11,19 +12,27 @@ import (
 )
 
 func main() {
-    config, err := config.Load("config.yaml");
+    logconfig, err := configlog.Load("configlog.yaml")
     if err!=nil {        
-        stdlog.Fatalf("error while reading config: %v", err)
+        stdlog.Fatalf("error while reading log config: %v", err)
     }
 
-    log, err := logger.NewByConfig(*config)
+    log, err := logger.NewByConfig(*logconfig)
     if err!=nil {
         stdlog.Fatalf("error while initializing log: %v", err)
     }
 
     slog.SetDefault(log.Logger)
+    
+    log.Info("Log started")
 
-    log.Info("Application started")
+    config, err := config.Load(log, "config.yaml");
+    if err!=nil {        
+        stdlog.Fatalf("error while reading config: %v", err)
+    }
+
+    
+    log.Info("Application config loaded")
 
     db, err := sql.Connect(*log, config.MetricsDb);
     if err!=nil {

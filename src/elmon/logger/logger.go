@@ -2,7 +2,7 @@ package logger
 
 import (
 	"context"
-	"elmon/config"
+	"elmon/configlog"
 	"log/slog"
 	"os"
 	"runtime"
@@ -45,10 +45,10 @@ func New(level slog.Level, isJSON bool, logFileName string) (*Logger, error) {
 }
 
 // NewByConfig creates a new logger instance based on the provided configuration.
-func NewByConfig(config config.Config) (*Logger, error) {
-	logFileName := config.Log.FileName
-	level := parseLevel(config.Log.Level)
-	isJson := config.Log.Format == "json"
+func NewByConfig(config configlog.LogConfig) (*Logger, error) {
+	logFileName := config.FileName
+	level := parseLevel(config.Level)
+	isJson := config.Format == "json"
 
 	logger, err := New(level, isJson, logFileName)
 	return logger, err

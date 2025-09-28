@@ -1,6 +1,7 @@
 package config
 
 import (
+	"elmon/logger"
 	"fmt"
 	"os"
 	"slices"
@@ -31,12 +32,6 @@ type GrafanaConfig struct {
 	Timeout int    `mapstructure:"timeout"` // default 30
 }
 
-type LogConfig struct {
-	Level    string `mapstructure:"level"`  // default error
-	Format   string `mapstructure:"format"` // default json
-	FileName string `mapstructure:"file"`
-}
-
 type ServerConfig struct {
 	Port int `mapstructure:"port"` //default 8080
 }
@@ -45,7 +40,6 @@ type Config struct {
 	MetricsDb DbConnectionConfig `mapstructure:"metrics-db"`
 	Server    ServerConfig       `mapstructure:"server"`
 	Grafana   GrafanaConfig      `mapstructure:"grafana"`
-	Log       LogConfig          `mapstructure:"log"`
 }
 
 type configInstance struct {
@@ -57,11 +51,11 @@ type configInstance struct {
 var globalConfig configInstance
 
 // Load initializes the configuration using Viper with support for YAML and environment variables
-func Load( configFilePath string) (*Config, error) {
+func Load(log *logger.Logger, configFilePath string) (*Config, error) {
 	globalConfig.once.Do(func() {
 		// Load .env file if it exists (for secrets only)
 		if err := godotenv.Load(); err != nil {
-			fmt.Println(".env file not found, using system environment variables for secrets")
+			log.Warn(".env file not found, using system environment variables for secrets")
 		}
 
 		// Configure Viper
@@ -82,34 +76,34 @@ func Load( configFilePath string) (*Config, error) {
 		// Read config file first (non-sensitive data remains in YAML)
 		if err := viper.ReadInConfig(); err != nil {
 			globalConfig.err = fmt.Errorf("failed to read config file '%s': %w", configFilePath, err)
-			fmt.Printf("failed to read config file '%s': %s/n", configFilePath, err.Error())
+			log.Error(err, "failed to read config file", "config_file", configFilePath)
 			return
 		}
 
-		substituteEnvVars()
+		substituteEnvVars(log)
 
 		globalConfig.cfg = &Config{}
 		if err := viper.Unmarshal(globalConfig.cfg); err != nil {
 			globalConfig.err = fmt.Errorf("failed to unmarshal config: %w", err)
-			fmt.Printf("failed to unmarshal config: %s/n", err.Error())
+			log.Error(err, "failed to unmarshal config")
 			globalConfig.cfg = nil
 			return
 		}
 		
-		if err := globalConfig.cfg.Validate(); err!=nil {
+		if err := globalConfig.cfg.Validate(log); err!=nil {
 			globalConfig.err = fmt.Errorf("failed to validate config file: %w", err)
+			log.Error(err, "failed to validate config file")
 			return
 		}
 
-		fmt.Printf("Config loaded from %s/n", configFilePath)
-		fmt.Println("Secrets loaded from environment variables with prefix: METRICS_")
+		log.Info(fmt.Sprintf("Config loaded from %s/n", configFilePath))
 	})
 
 	return globalConfig.cfg, globalConfig.err
 }
 
 // substituteEnvVars manually substitutes environment variables for sensitive fields
-func substituteEnvVars() {
+func substituteEnvVars(log *logger.Logger) {
 	// Database credentials
 	if dbUser := os.Getenv("METRICS_DB_USER"); dbUser != "" {
 		viper.Set("metrics-db.user", dbUser)
@@ -136,6 +130,7 @@ func substituteEnvVars() {
 	if logLevel := os.Getenv("METRICS_LOG_LEVEL"); logLevel != "" {
 		viper.Set("log.level", logLevel)
 	}
+	log.Info("Secrets loaded from environment variables with prefix: METRICS_")
 }
 
 // GetConfig returns the loaded configuration
@@ -153,18 +148,22 @@ func ClearCache() {
 }
 
 //Validate DatabaseConfig
-func (dbConnectionConfig *DbConnectionConfig) Validate() error {
+func (dbConnectionConfig *DbConnectionConfig) Validate(log *logger.Logger) error {
 	// Validate database configuration
 	if dbConnectionConfig.Host == "" {
+		log.Error(fmt.Errorf("database host is required"), "error while reading db connection config")
 		return fmt.Errorf("database host is required")
 	}
 	if dbConnectionConfig.Port <= 0 || dbConnectionConfig.Port > 65535 {
+		log.Error(fmt.Errorf("invalid database port: %d", dbConnectionConfig.Port), "error while reading db connection config")
 		return fmt.Errorf("invalid database port: %d", dbConnectionConfig.Port)
 	}
 	if dbConnectionConfig.User == "" {
+		log.Error(fmt.Errorf("database user is required"), "error while reading db connection config")
 		return fmt.Errorf("database user is required")
 	}
 	if dbConnectionConfig.DbName == "" {
+		log.Error(fmt.Errorf("database name is required"), "error while reading db connection config")
 		return fmt.Errorf("database name is required")
 	}
 	// List of valid authentication methods
@@ -179,6 +178,7 @@ func (dbConnectionConfig *DbConnectionConfig) Validate() error {
 		//default 
 		dbConnectionConfig.HostAuthMethod = "md5"
 	} else if !slices.Contains(validAuthMethods, dbConnectionConfig.HostAuthMethod) {
+		log.Error(fmt.Errorf("invalid auth method: %s", dbConnectionConfig.HostAuthMethod), "error while reading db connection config")
 		return fmt.Errorf("invalid auth method: %s", dbConnectionConfig.HostAuthMethod)
 	}
 
@@ -195,11 +195,13 @@ func (dbConnectionConfig *DbConnectionConfig) Validate() error {
 		//default
 		dbConnectionConfig.SslMode = "disable"
 	} else if !slices.Contains(validSslModes, dbConnectionConfig.SslMode) {
+		log.Error(fmt.Errorf("invalid SSL mode: %s", dbConnectionConfig.SslMode), "error while reading db connection config")
 		return fmt.Errorf("invalid SSL mode: %s", dbConnectionConfig.SslMode)
 	}
 
 	// MetricsDb.MaxOpenConnections
 	if dbConnectionConfig.MaxOpenConnections < 0 {
+		log.Error(fmt.Errorf("invalid max open connections: %d", dbConnectionConfig.MaxOpenConnections), "error while reading db connection config")
 		return fmt.Errorf("invalid max open connections: %d", dbConnectionConfig.MaxOpenConnections)
 	} else if dbConnectionConfig.MaxOpenConnections == 0 {
 		//default
@@ -208,6 +210,7 @@ func (dbConnectionConfig *DbConnectionConfig) Validate() error {
 
 	// MetricsDb.MaxIdleConnections
 	if dbConnectionConfig.MaxIdleConnections < 0 {
+		log.Error(fmt.Errorf("invalid max idle connections: %d", dbConnectionConfig.MaxIdleConnections), "error while reading db connection config")
 		return fmt.Errorf("invalid max idle connections: %d", dbConnectionConfig.MaxIdleConnections)
 	} else if dbConnectionConfig.MaxIdleConnections == 0 {
 		//default
@@ -216,6 +219,7 @@ func (dbConnectionConfig *DbConnectionConfig) Validate() error {
 
 	// MetricsDb.ConnectionMaxLifetime
 	if dbConnectionConfig.ConnectionMaxLifetime < 0 {
+		log.Error(fmt.Errorf("invalid connection max lifetime: %d", dbConnectionConfig.ConnectionMaxLifetime), "error while reading db connection config")
 		return fmt.Errorf("invalid connection max lifetime: %d", dbConnectionConfig.ConnectionMaxLifetime)
 	} else if dbConnectionConfig.ConnectionMaxLifetime == 0 {
 		//default
@@ -226,9 +230,10 @@ func (dbConnectionConfig *DbConnectionConfig) Validate() error {
 }
 
 //Validate Server config
-func (serverConfig *ServerConfig) Validate() error {
+func (serverConfig *ServerConfig) Validate(log *logger.Logger) error {
 	// Validate server configuration
 	if serverConfig.Port < 0 || serverConfig.Port > 65535 {
+		log.Error(fmt.Errorf("invalid server port: %d", serverConfig.Port), "error while reading server config")
 		return fmt.Errorf("invalid server port: %d", serverConfig.Port)
 	} else if serverConfig.Port == 0 {
 		// default
@@ -238,12 +243,14 @@ func (serverConfig *ServerConfig) Validate() error {
 }
 
 //Validate Grafana config
-func (grafanaConfig *GrafanaConfig) Validate() error {
+func (grafanaConfig *GrafanaConfig) Validate(log *logger.Logger) error {
 	if grafanaConfig.Url == "" {
+		log.Error(fmt.Errorf("grafana URL is required"), "error while reading grafana config")
 		return fmt.Errorf("grafana URL is required")
 	}
 
 	if grafanaConfig.Token == "" {
+		log.Error(fmt.Errorf("grafana Token is required"), "error while reading grafana config")
 		return fmt.Errorf("grafana Token is required")
 	}
 
@@ -251,67 +258,33 @@ func (grafanaConfig *GrafanaConfig) Validate() error {
 		//default
 		grafanaConfig.Timeout = 30
 	} else if grafanaConfig.Timeout < 0 {
+		log.Error(fmt.Errorf("invalid grafana timeout: %d", grafanaConfig.Timeout), "error while reading grafana config")
 		return fmt.Errorf("invalid grafana timeout: %d", grafanaConfig.Timeout)
 	}
 
 	return nil
 }
 
-// Validate LogConfig
-func (logConfig *LogConfig) Validate() error {
-	validLogLevels := []string{
-		"debug",
-		"info",
-		"warn",
-		"error",
-	}
-
-	if logConfig.Level == "" {
-		//default
-		logConfig.Level = "warn"
-	} else if !slices.Contains(validLogLevels, logConfig.Level) {
-		return fmt.Errorf("invalid log level: %s", logConfig.Level)
-	}
-
-	validFormats := []string{
-		"json",
-		"text",
-	}
-
-	if logConfig.Format == "" {
-		//default 
-		logConfig.Format = "json"
-	} else if !slices.Contains(validFormats, logConfig.Format) {
-		return fmt.Errorf("invalid log format: %s", logConfig.Format)
-	}
-
-	return  nil
-}
-
 
 // Validate performs basic configuration validation
-func (config *Config) Validate() error {
+func (config *Config) Validate(log *logger.Logger) error {
 	if config == nil {
+		log.Error(fmt.Errorf("config is nil"), "config is nil")
 		return fmt.Errorf("config is nil")
 	}
 
 	// Validate MetricsDb config
-	if err := config.MetricsDb.Validate(); err!=nil {
+	if err := config.MetricsDb.Validate(log); err!=nil {
 		return err
 	}
 	
 	// Validate Server config
-	if err := config.Server.Validate(); err!=nil {
+	if err := config.Server.Validate(log); err!=nil {
 		return err
 	}
 
 	// Validate grafana config
-	if err := config.Grafana.Validate(); err!=nil {
-		return err
-	}
-	
-	// Validate log config
-	if err:= config.Log.Validate(); err!=nil {
+	if err := config.Grafana.Validate(log); err!=nil {
 		return err
 	}
 
