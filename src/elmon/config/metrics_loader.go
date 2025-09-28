@@ -136,6 +136,56 @@ func (l *MetricsConfigLoader) Validate(log *logger.Logger, config *MetricsConfig
         }
     }
 
+    if err:=l.validateUniqueMetricGroupNames(log, config); err!=nil {
+        log.Error(err, "error while metrics config validation");
+        return err
+    }
+
+    if err:=l.validateUniqueMetricNamesGlobally(log, config); err!=nil {
+        log.Error(err, "error while metrics config validation");
+        return err
+    }
+
+
+    return nil
+}
+
+
+// validateUniqueMetricGroupNames ensures all metric group names are unique
+func (l *MetricsConfigLoader) validateUniqueMetricGroupNames(log *logger.Logger, config *MetricsConfig) error {
+    names := make(map[string]bool)
+    for _, group := range config.MetricGroups {
+        if group.Name == "" {
+            // Already handled in validateMetricGroup, but a non-empty name is needed for uniqueness check
+            continue
+        }
+        if names[group.Name] {
+            err := fmt.Errorf("duplicate metric group name found: '%s'", group.Name)
+            log.Error(err, "config validation error: duplicate metric group name")
+            return err
+        }
+        names[group.Name] = true
+    }
+    return nil
+}
+
+// validateUniqueMetricNamesGlobally ensures all metric names across all groups are unique
+func (l *MetricsConfigLoader) validateUniqueMetricNamesGlobally(log *logger.Logger, config *MetricsConfig) error {
+    names := make(map[string]bool)
+    for _, group := range config.MetricGroups {
+        for _, metric := range group.Metrics {
+            if metric.Name == "" {
+                // Already handled in validateMetric, but a non-empty name is needed for uniqueness check
+                continue
+            }
+            if names[metric.Name] {
+                err := fmt.Errorf("duplicate metric name found globally: '%s'", metric.Name)
+                log.Error(err, "config validation error: duplicate metric name")
+                return err
+            }
+            names[metric.Name] = true
+        }
+    }
     return nil
 }
 
