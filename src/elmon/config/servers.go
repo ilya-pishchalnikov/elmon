@@ -79,3 +79,13 @@ func (dbServers *DbServers) Validate (log *logger.Logger) error {
     return nil
 }
 
+// Get server by name
+func (dbServers *DbServers) GetByName (name string) *DbConnectionConfig {
+	for _, server := range dbServers.Servers {
+		if server.Name == name {
+			return &server
+		}
+	}
+	return nil
+}
+

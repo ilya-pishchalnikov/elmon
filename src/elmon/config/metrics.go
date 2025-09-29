@@ -160,3 +160,16 @@ func customDurationHook() mapstructure.DecodeHookFunc {
         return d, nil
     }
 }
+
+// Get Metrics by name
+func (l *MetricsConfig) GetMetricByName(name string) *Metric {
+    for _, metricGroup := range l.MetricGroups {
+        for _, metric := range metricGroup.Metrics {
+            if metric.Name == name {
+                return &metric
+            }
+        }
+    }
+
+    return nil
+}

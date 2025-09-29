@@ -1,0 +1,12 @@
+servers:
+    - 
+        name: test_target_server
+        metrics:
+            -
+                name: cache_hit_ratio
+                interval: 10s
+                max-retries: 0
+                retry-delay: 0s
+                query-timeout: 5s
+            -
+                name: total_transactions
