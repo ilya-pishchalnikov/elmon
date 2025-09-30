@@ -98,7 +98,7 @@ func main() {
 	log.Info(fmt.Sprintf("Loaded metrics config version '%s'", metricsCfg.Version))
 
 	// Insert metric groups and metrics into the database
-	err = loader.InsertMetricsToDB(log, metricsCfg, db)
+	err = sql.InsertMetricsToDB(log, metricsCfg, db)
 	if err != nil {
 		log.Error(err, "Error inserting metrics into database")
 		stdlog.Fatalf("Fatal error inserting metrics into database: %v", err)
@@ -132,4 +132,27 @@ func main() {
 	log.Info("Server-metric assignments loaded")
 
     fmt.Println(len(serversMetrics.Servers))
+
+	// fmt.Println("--------------------------------------------------------------------------------------")
+
+	// taskToRun := func(ctx context.Context) error {
+	// 	r := rand.New(rand.NewSource(time.Now().UnixNano()))
+	// 	if r.Float64() < 0.5 {
+	// 		return fmt.Errorf("error while test function executing")
+	// 	}
+	// 	return nil		
+	// }
+
+	// s := scheduler.NewTaskScheduler(
+	// 	1*time.Second,    
+	// 	1,                
+	// 	500*time.Millisecond, 
+	// 	taskToRun,
+	// 	log, 
+	// )
+
+	// s.Start()
+	// time.Sleep(5 * time.Second)
+	// s.Stop()
+
 }

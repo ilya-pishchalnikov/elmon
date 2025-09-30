@@ -22,28 +22,6 @@ type Tx interface {
 	Rollback() error
 }
 
-// SQL constants for inserting metric configuration into the database.
-const (
-	// SQL to insert a metric group name. It uses ON CONFLICT to prevent duplicates
-	// and returns the metric_group_id of the existing or newly inserted row.
-	SQLInsertMetricGroup = `
-		insert into metric_group (metric_group_name, description)
-		values ($1, $2)
-		on conflict (metric_group_name) do update
-		set description = excluded.description
-		returning metric_group_id
-	`
-	// SQL to insert a metric name linked to its group.
-	// It uses ON CONFLICT to prevent duplicates and returns the metric_id.
-	SQLInsertMetric = `
-		insert into metric (metric_group_id, metric_name, description)
-		values ($1, $2, $3)
-		on conflict (metric_name) do update
-		set metric_group_id = excluded.metric_group_id,
-		    description = excluded.description
-	`
-)
-
 // MetricsConfig represents the root metrics configuration
 type MetricsConfig struct {
     Version      string       `mapstructure:"version,omitempty"`     // default 1.0
@@ -81,6 +59,7 @@ type Metric struct {
     MaxRetries     int                    `mapstructure:"max-retries,omitempty"`  // default global.default-max-retries
     RetryDelay     Duration               `mapstructure:"retry-delay,omitempty"`  // default default-retry-delay
     Unit           string                 `mapstructure:"unit,omitempty"`         // default ""
+    DbMetricId     int
 }
 
 // Custom types for type safety

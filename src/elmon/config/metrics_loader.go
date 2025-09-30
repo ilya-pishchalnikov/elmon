@@ -1,7 +1,6 @@
 package config
 
 import (
-	"database/sql"
 	"elmon/logger"
 	"fmt"
 	"os"
@@ -336,63 +335,6 @@ func (l *MetricsConfigLoader) validateMetric(log *logger.Logger, metric *Metric,
     }
 
     return nil
-}
-
-// InsertMetricsToDB inserts metric groups and metrics from the configuration
-// into the database if they don't already exist.
-func (l *MetricsConfigLoader) InsertMetricsToDB(log *logger.Logger, config *MetricsConfig, db *sql.DB) error {
-	transaction, err := db.Begin()
-	if err != nil {
-		return fmt.Errorf("failed to begin transaction: %w", err)
-	}
-
-	// Defer a rollback in case of error
-	defer func() {
-		if r := recover(); r != nil {
-			log.Error(nil, fmt.Sprintf("panic during DB insertion, attempting rollback: %v", r))
-			transaction.Rollback()
-			panic(r) // Re-throw panic
-		} else if err != nil {
-			log.Warn(fmt.Sprintf("DB insertion failed, rolling back: %v", err))
-			transaction.Rollback()
-		}
-	}()
-
-	for _, group := range config.MetricGroups {
-		// 1. Insert or update metric group
-		log.Debug(fmt.Sprintf("Inserting/updating metric group: %s", group.Name))
-        
-		row := transaction.QueryRow(SQLInsertMetricGroup, group.Name, group.Description)
-
-        var groupId int
-
-        if err := row.Scan(&groupId); err != nil {
-            log.Error(err, "failed to insert/get metric group ID")
-            return fmt.Errorf("failed to insert/get metric group ID for '%s': %w", group.Name, err)
-        }
-
-		if err != nil {
-			return fmt.Errorf("failed to insert metric group '%s': %w", group.Name, err)
-		}
-
-		// 2. Insert or update metrics within the group
-		for _, metric := range group.Metrics {
-			log.Debug(fmt.Sprintf("Inserting/updating metric: %s (Group: %s)", metric.Name, group.Name))
-
-            // For now, let's stick to the simple transactional upsert logic:
-			_, err = transaction.Exec(SQLInsertMetric, groupId, metric.Name, metric.Description) // 0 is placeholder for metric_group_id
-			if err != nil {
-				return fmt.Errorf("failed to insert metric '%s' for group '%s': %w", metric.Name, group.Name, err)
-			}
-		}
-	}
-
-	if err = transaction.Commit(); err != nil {
-		return fmt.Errorf("failed to commit transaction: %w", err)
-	}
-
-	log.Info("Successfully inserted/updated metric configuration in the database.")
-	return nil
 }
 
 // GetSQLQuery loads SQL query from file

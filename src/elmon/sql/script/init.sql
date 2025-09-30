@@ -65,9 +65,9 @@ create table if not exists credential (
 	created_at timestamptz not null constraint df_credential_created_at default (current_timestamp),
 	modified_at timestamptz null,
 
-	constraint pk_credential  primary key (credential_id),
+	constraint pk_credential primary key(credential_id),
 
-	constraint fk_credential_server_id foreign key (server_id) references server (server_id)    
+	constraint fk_credential_server_id foreign key (server_id) references server (server_id)
 );
 
 -- Dictionary table for logical groups of metrics
