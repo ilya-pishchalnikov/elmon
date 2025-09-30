@@ -1,3 +1,4 @@
+-- elmon get cache hit ratio
 select jsonb_build_object(
     'value', round(
         (
