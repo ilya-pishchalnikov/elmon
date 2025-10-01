@@ -1,98 +1,94 @@
 package collector
 
 import (
-	// dbsql "database/sql"
-	// "elmon/sql"
-	// "elmon/config"
-	// "elmon/logger"
+	dbsql "database/sql"
+	"elmon/config"
+	"elmon/logger"
+	"elmon/sql"
 	"fmt"
-	// "os"
+	"os"
 	"reflect"
 )
 
-// MyService — структура с методами, которые мы хотим вызывать
+// CollectFunctions — struct with methods we want to call
 type CollectFunctions struct{}
 
-// // 
-// func (collectFunctions CollectFunctions) ExecuteSql (
-// 	log *logger.Logger,
-// 	db *config.DbConnectionConfig, 
-// 	metric *config.MetricForMapping, 
-// 	metricDb *dbsql.DB) error {
+// ExecuteSql gets the metric value by executing an SQL command
+func (collectFunctions CollectFunctions) ExecuteSql (
+	log *logger.Logger,
+	db *config.DbConnectionConfig, 
+	metric *config.MetricForMapping, 
+	metricDb *dbsql.DB) error {
 
-// 		sqlScript, err := os.ReadFile(metric.MetricConfig.SQLFile)
-// 		if err != nil {
-// 			log.Error(err, fmt.Sprintf("Error while read sql file of metric '%s' for server '%s'", metric.Name, db.Name))
-// 			return err
-// 		}
+	sqlScript, err := os.ReadFile(metric.MetricConfig.SQLFile)
+	if err != nil {
+		log.Error(err, fmt.Sprintf("Error while read sql file of metric '%s' for server '%s'", metric.Name, db.Name))
+		return err
+	}
 
-// 		value, err = sql.ExecuteMetricValueGetScriptWithTimeout(db.SqlConnection, string(sqlScript), metric.QueryTimeout.Duration)
-// 		if err != nil {
-// 			log.Error(err, fmt.Sprintf("Error while query metric '%s' from server '%s'", metric.Name, db.Name))
-// 			return err
-// 		}
+	value, err := sql.ExecuteMetricValueGetScript(db.SqlConnection, string(sqlScript), metric.QueryTimeout.Duration)
+	if err != nil {
+		log.Error(err, fmt.Sprintf("Error while query metric '%s' from server '%s'", metric.Name, db.Name))
+		return err
+	}
 
-// 		err = sql.InsertMetricValue(log, db.SqlConnection, metric.MetricConfig.DbMetricId, )
+	// omit null metrics values
+	if value != nil {
+		err = sql.InsertMetricValue(log, metricDb, metric.MetricConfig.DbMetricId, *db.SqlServerId, value);
+		if err != nil {
+			log.Error(err, fmt.Sprintf("Error while insert metric '%s' from server '%s' into metrics database", metric.Name, db.Name))
+			return err
+		} 
+	}
+
+	return nil
+}
 
 
-// 	return nil
-// }
-
-// ----------------------------------------------------------------------------------
-
-// CallMethodAndReturnError динамически вызывает метод структуры и возвращает error
-//
-// service: экземпляр структуры, содержащий метод.
-// methodName: строковое имя вызываемого метода.
-// param: параметр, передаваемый методу.
-func CallMethodAndReturnError(service interface{}, methodName string, param interface{}) error {
-	// 1. Получаем reflect.Value структуры
+// CallMethod dynamically calls a struct method and returns an error
+func CallMethod(service interface{}, methodName string, args ...interface{}) error {
+	// 1. Get the reflect.Value of the struct
 	v := reflect.ValueOf(service)
 
-	// 2. Находим метод по имени
+	// 2. Find the method by name
 	method := v.MethodByName(methodName)
 	if !method.IsValid() {
-		return fmt.Errorf("метод '%s' не найден в структуре", methodName)
+		return fmt.Errorf("method '%s' not found in struct", methodName)
 	}
 
-	// 3. Проверяем сигнатуру метода (ожидаем один входной параметр и один выходной error)
-	methodType := method.Type()
-	if methodType.NumIn() != 1 || methodType.NumOut() != 1 {
-		return fmt.Errorf("метод '%s' должен принимать 1 параметр и возвращать 1 результат", methodName)
+	// 3. Prepare arguments for the call
+	in := make([]reflect.Value, len(args))
+	for i, arg := range args {
+		if arg == nil {
+			// Специальная обработка для nil интерфейсов/указателей
+			if method.Type().NumIn() > i {
+				in[i] = reflect.Zero(method.Type().In(i))
+			} else {
+				return fmt.Errorf("argument %d is nil, but method signature mismatch", i)
+			}
+		} else {
+			in[i] = reflect.ValueOf(arg)
+		}
 	}
 
-	// 4. Проверяем тип возвращаемого значения (должен быть error)
-	errorType := reflect.TypeOf((*error)(nil)).Elem()
-	if methodType.Out(0) != errorType {
-		return fmt.Errorf("метод '%s' должен возвращать тип error, а возвращает %s", methodName, methodType.Out(0))
-	}
-
-	// 5. Подготавливаем аргументы для вызова
-	// Создаем []reflect.Value с нашим единственным параметром
-	in := []reflect.Value{reflect.ValueOf(param)}
-
-	// 6. Выполняем вызов метода
+	// 4. Execute the method call
 	out := method.Call(in)
 
-	// 7. Обрабатываем возвращаемое значение (ожидаем один результат типа error)
+	// 5. Process the return value (expecting one result of type error)
 	if len(out) == 0 {
-		return nil // Теоретически не должно случиться из-за проверки NumOut, но для безопасности
+		return nil
 	}
 
-	// Получаем первый (и единственный) результат
 	resultValue := out[0]
 
-	// Если возвращаемое значение не nil
 	if !resultValue.IsNil() {
-		// Преобразуем reflect.Value в interface{} и затем в error
+		// Convert reflect.Value to error
 		err, ok := resultValue.Interface().(error)
 		if !ok {
-			// Это должно быть невозможно из-за проверки Out(0), но на всякий случай
-			return fmt.Errorf("возвращаемое значение не удалось преобразовать в error")
+			return fmt.Errorf("return value could not be converted to error")
 		}
 		return err
 	}
 
-	// Возвращаемое значение nil (нет ошибки)
 	return nil
 }

@@ -135,7 +135,8 @@ func substituteEnvVars(log *logger.Logger) {
 	if logLevel := os.Getenv("METRICS_LOG_LEVEL"); logLevel != "" {
 		viper.Set("log.level", logLevel)
 	}
-	log.Info("Secrets loaded from environment variables with prefix: METRICS_")
+
+	log.Info("Secrets loaded from environment variables")
 }
 
 // GetConfig returns the loaded configuration

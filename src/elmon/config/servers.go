@@ -1,9 +1,10 @@
 package config
 
 import (
+	"bytes"
 	"elmon/logger"
 	"fmt"
-	"strings"
+	"os"
 
 	"github.com/joho/godotenv"
 	"github.com/spf13/viper"
@@ -14,46 +15,46 @@ type DbServers struct {
 }
 
 func LoadDbServers(log *logger.Logger, configFilePath string) (*DbServers, error) {
-	if err := godotenv.Load(); err != nil {
-		log.Warn(".env file not found, using system environment variables for secrets")
-	}
-	// Configure Viper
-	viper.SetConfigFile(configFilePath)
-	viper.SetConfigType("yaml")
+    // 1. Load .env file (always first to ensure secrets are available in the OS environment)
+    if err := godotenv.Load(); err != nil {
+        log.Warn(".env file not found, using system environment variables for secrets")
+    }
 
-	// Add paths to search for config files
-	viper.AddConfigPath(".")
-	viper.AddConfigPath("./config")
+    // 2. Read the raw file content
+    rawContent, err := os.ReadFile(configFilePath)
+    if err != nil {
+        log.Error(err, "failed to read config file", "config_file", configFilePath)
+        return nil, err
+    }
 
-	// Enable environment variables support only for sensitive data
-	viper.AutomaticEnv()
+    // 3. Expand environment variables (this handles ${VAR} substitution)
+    expandedContent := os.ExpandEnv(string(rawContent))
 
-	// Configure environment variables prefix
-	viper.SetEnvPrefix("METRICS")
-	viper.SetEnvKeyReplacer(strings.NewReplacer("-", "_"))
+    // 4. Configure Viper rules (Best practice: configure before reading)
+    viper.SetConfigType("yaml")
 
-	// Read config file first (non-sensitive data remains in YAML)
-	if err := viper.ReadInConfig(); err != nil {
-		log.Error(err, "failed to read config file", "config_file", configFilePath)
-		return nil, err
-	}
+    // 5. Load the expanded content into Viper (Use ReadConfig from a buffer)
+    err = viper.ReadConfig(bytes.NewBufferString(expandedContent))
+    if err != nil {
+        return nil, fmt.Errorf("failed to read expanded config into viper: %w", err)
+    }
+    
+    // 6. Unmarshal the config
+    var dbServersConfig *DbServers
+    if err := viper.Unmarshal(&dbServersConfig); err != nil {
+        log.Error(err, "failed to unmarshal config")
+        return nil, err
+    }
+    
+    // 7. Validate
+    if err := dbServersConfig.Validate(log); err != nil {
+        log.Error(err, "failed to validate config file")
+        return nil, err
+    }
 
-	substituteEnvVars(log)
+    log.Info(fmt.Sprintf("Db servers config loaded from %s", configFilePath))
 
-	var dbServersConfig *DbServers
-	if err := viper.Unmarshal(&dbServersConfig); err != nil {
-		log.Error(err, "failed to unmarshal config")
-		return nil, err
-	}
-	
-	if err := dbServersConfig.Validate(log); err!=nil {
-		log.Error(err, "failed to validate config file")
-		return nil, err
-	}
-
-	log.Info(fmt.Sprintf("Db servers config loaded from %s", configFilePath))
-
-	return dbServersConfig, nil;
+    return dbServersConfig, nil
 }
 
 func (dbServers *DbServers) Validate (log *logger.Logger) error {

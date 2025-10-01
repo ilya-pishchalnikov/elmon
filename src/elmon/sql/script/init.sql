@@ -148,7 +148,7 @@ begin
 		
 		if not exists (select 1 from pg_tables where tablename = partition_name) then
 			execute format(
-				'create table %i partition of metric_value for values from (%l) to (%l)',
+				'create table %I partition of metric_value for values from (%L) to (%L)',
 				partition_name,
 				start_date,
 				end_date
@@ -196,3 +196,5 @@ begin
 	raise notice 'Finished dropping old metric partitions.';
 end;
 $$ language plpgsql;
+
+select create_metric_partition();

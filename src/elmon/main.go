@@ -1,6 +1,7 @@
 package main
 
 import (
+	"elmon/collector"
 	"elmon/config"
 	"elmon/configlog"
 	"elmon/grafana"
@@ -138,26 +139,24 @@ func main() {
 	}
 	log.Info("Servers loaded to metrics DB")
 
-	// fmt.Println("--------------------------------------------------------------------------------------")
+	 fmt.Println("--------------------------------------------------------------------------------------")
 
-	// taskToRun := func(ctx context.Context) error {
-	// 	r := rand.New(rand.NewSource(time.Now().UnixNano()))
-	// 	if r.Float64() < 0.5 {
-	// 		return fmt.Errorf("error while test function executing")
-	// 	}
-	// 	return nil		
-	// }
+	// 2. Вызов CallMethodAndReturnError
+	fmt.Println("--- STARTING DYNAMIC CALL ---")
+	err = collector.CallMethod(
+		collector.CollectFunctions{}, // service
+		"ExecuteSql",       // methodName
+		log,           // arg 1: *Logger
+		serversMetrics.Servers[0].Config,           // arg 2: *DbConnectionConfig
+		&serversMetrics.Servers[0].Metrics[0],             // arg 3: *MetricForMapping
+		db,          // arg 4: *dbsql.DB
+	)
+	fmt.Println("--- ENDING DYNAMIC CALL ---")
 
-	// s := scheduler.NewTaskScheduler(
-	// 	1*time.Second,    
-	// 	1,                
-	// 	500*time.Millisecond, 
-	// 	taskToRun,
-	// 	log, 
-	// )
-
-	// s.Start()
-	// time.Sleep(5 * time.Second)
-	// s.Stop()
+	if err != nil {
+		fmt.Printf("Dynamic call failed: %v\n", err)
+	} else {
+		fmt.Println("Dynamic call completed successfully (simulated).")
+	}
 
 }

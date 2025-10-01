@@ -13,10 +13,10 @@ import (
 // MetricForMapping holds overridden collection parameters for a specific metric on a server.
 type MetricForMapping struct {
 	Name         string   `mapstructure:"name"`
-	Interval     Duration `mapstructure:"intreval,omitempty"`
-	MaxRetries   int      `mapstructure:"max-retries,omitempty"`
-	RetryDelay   Duration `mapstructure:"retry-delay,omitempty"`
-	QueryTimeout Duration `mapstructure:"query-timeout,omitempty"`
+	Interval     Duration `mapstructure:"interval"`
+	MaxRetries   int      `mapstructure:"max-retries"`
+	RetryDelay   Duration `mapstructure:"retry-delay"`
+	QueryTimeout Duration `mapstructure:"query-timeout"`
 	MetricConfig *Metric // Pointer to the metric's base configuration
 }
 
@@ -133,7 +133,8 @@ func (l *ServerMetricMap) Validate(log *logger.Logger, config *ServerMetricMap, 
 
 		metricNames := make(map[string]bool)
 		// Validate metrics assigned to this server
-		for metricIndex, metric := range server.Metrics {
+		for metricIndex := range server.Metrics {
+			metric := &server.Metrics[metricIndex]
 			if err := metric.Validate(log, config, metrics, l.viper, serverIndex, metricIndex); err != nil {
 				err := fmt.Errorf("invalid metric '%s' (index %d) for server '%s' (index %d): %w", metric.Name, metricIndex, server.Name, serverIndex, err)
 				log.Error(err, "Error while parsing server-metric mapping config")

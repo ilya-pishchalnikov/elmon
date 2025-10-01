@@ -6,6 +6,6 @@ db-servers:
         environment: "test"
         host: "192.168.1.141"
         port: 5433
-        user: "${TEST_DB_USER}"
-        password: "${TEST_DB_PASSWORD}"
+        user: "${METRICS_TEST_DB_USER}"
+        password: "${METRICS_TEST_DB_PASSWORD}"
         DbName: "application"
