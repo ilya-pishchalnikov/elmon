@@ -59,7 +59,8 @@ func LoadDbServers(log *logger.Logger, configFilePath string) (*DbServers, error
 func (dbServers *DbServers) Validate (log *logger.Logger) error {
 	
 	names := make(map[string]bool)
-	for i, dbServer := range dbServers.Servers {
+	for i := range dbServers.Servers {
+		dbServer := &dbServers.Servers[i]
 		if err:=dbServer.Validate(log);err!=nil {
 			log.Error(err, fmt.Sprintf("Error while validate config of server [%d] '%s'", i, dbServer.Name))
 			return  err;

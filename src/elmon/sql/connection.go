@@ -46,8 +46,9 @@ func Connect(log *logger.Logger, config *config.DbConnectionConfig) (*sql.DB, er
 
 // ConnectAll iterates through all configured database servers and establishes a connection for each one.
 func ConnectAll(log *logger.Logger, config *config.DbServers) error {
-	for _, server := range config.Servers {
-		_, err := Connect(log, &server)
+	for serverIndex := range config.Servers {
+		server := &config.Servers[serverIndex]
+		_, err := Connect(log, server)
 		if err != nil {
 			log.Error(err, "error while open database")
 			return err

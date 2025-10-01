@@ -113,7 +113,8 @@ func (l *ServerMetricMap) Load(log *logger.Logger, configFile string, servers Db
 func (l *ServerMetricMap) Validate(log *logger.Logger, config *ServerMetricMap, servers DbServers, metrics MetricsConfig) error {
 
 	serverNames := make(map[string]bool)
-	for serverIndex, server := range l.Servers {
+	for serverIndex := range l.Servers {
+		server := &l.Servers[serverIndex]
 		// Check if the server exists in the servers config
 		server.Config = servers.GetByName(server.Name)
 		if server.Config == nil {

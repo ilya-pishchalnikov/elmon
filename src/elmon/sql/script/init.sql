@@ -1,57 +1,26 @@
--- Table to store different deployment environments (e.g., Prod, Dev)
-create table if not exists environment (
-	environment_id smallserial not null,
-	environment_name varchar(100) not null constraint uq_environment_environment_name unique,
-	description text null,
-
-	constraint pk_environment primary key (environment_id)
-);
-
--- Dictionary table for different authentication methods (e.g., password, md5)
-create table if not exists host_auth_method (
-	host_auth_method_id smallserial not null,
-	host_auth_method_name varchar(50) not null constraint uq_host_auth_method_host_auth_method_name unique,
-
-	constraint pk_host_auth_method primary key (host_auth_method_id)
-);
-
--- Dictionary table for possible SSL/TLS connection modes
-create table if not exists ssl_mode (
-	ssl_mode_id smallserial not null,
-	ssl_mode_name varchar(50) not null constraint uq_ssl_mode_ssl_mode_name unique,
-
-	constraint pk_ssl_mode primary key (ssl_mode_id)
-);
-
--- Dictionary table for time zone information
-create table if not exists timezone (
-	timezone_id smallserial not null,
-	timezone_name varchar(50) not null constraint uq_timezone_timezone_name unique,
-
-	constraint pk_timezone primary key (timezone_id)
-);
-
 -- Table to store details of monitored database servers
 create table if not exists server (
 	server_id serial not null,
-	environment_id smallint not null,
+	environment_name varchar(100) not null,
 	name varchar(255) not null,
 	host varchar(255) not null,
-	port smallint not null constraint chk_server_port check (port between 1 and 65535),
-	host_auth_method_id smallint null,
-	timezone_id smallint null,
-	ssl_mode_id smallint null,
+	port smallint not null,
+	host_auth_method varchar(20) null,
+	timezone varchar(20),
+	ssl_mode varchar(20) null,
 	description text null,
 	is_active boolean not null,
-	created_at timestamptz constraint df_server_created_at default (current_timestamp) not null,
+	created_at timestamptz not null constraint df_server_created_at default (current_timestamp),
 	modified_at timestamptz null,
 	
 	constraint pk_server primary key (server_id),
+
+	constraint uq_server_name unique(name),
+
+	constraint chk_server_port check (port between 1 and 65535),
+	constraint chk_server_host_auth_method check (host_auth_method in ('password', 'md5', 'scram-sha-256', 'certificate', 'gss', 'sspi')),
+	constraint chk_server_ssl_mode check (ssl_mode in ('disable', 'allow', 'prefer', 'require', 'verify-ca', 'verify-full'))
 	
-	constraint fk_server_environment_id foreign key (environment_id) references environment(environment_id),
-	constraint fk_server_host_auth_method_id foreign key (host_auth_method_id) references host_auth_method(host_auth_method_id),
-	constraint fk_server_timezone_id foreign key (timezone_id) references timezone(timezone_id),
-	constraint fk_server_ssl_mode_id foreign key (ssl_mode_id) references ssl_mode(ssl_mode_id)
 );
 
 -- Table to store encrypted database credentials for servers
@@ -112,6 +81,7 @@ begin
 end;
 $$ language plpgsql;
 
+
 -- Trigger to execute update_modified_at before updating the server table
 create or replace trigger trigger_server_modified_at
 	before update on server
@@ -121,6 +91,44 @@ create or replace trigger trigger_server_modified_at
 create or replace trigger trigger_credential_modified_at
 	before update on credential
 	for each row execute function update_modified_at();
+
+-- Checks if a given text string represents a valid PostgreSQL time zone name 
+-- or offset by attempting to set the session's time zone.
+create or replace function is_valid_timezone(tz_name text)
+returns boolean
+language plpgsql
+as $$
+begin
+    execute 'set time zone ' || quote_literal(tz_name);
+    return true;
+exception
+    when invalid_parameter_value then 
+        return false;
+    when others then
+        return false;
+end;
+$$;
+
+-- Function to validate a timezone string using the custom is_valid_timezone function
+create or replace function check_timezone_validity()
+returns trigger
+language plpgsql
+as $$
+begin
+    if not is_valid_timezone(new.timezone) then
+        raise exception 'invalid timezone name: %', new.timezone
+        using hint = 'check the name complies with iana format (e.g., europe/berlin or utc).';
+    end if;
+    
+    return new;
+end;
+$$;
+
+-- Create a trigger that executes the validation function
+create or replace trigger trg_check_timezone
+before insert or update of timezone on server
+for each row
+execute function check_timezone_validity();
 
 -- Function to create metric_value partitions for future months
 create or replace function create_metric_partition(month_forward integer default 6)
@@ -188,12 +196,3 @@ begin
 	raise notice 'Finished dropping old metric partitions.';
 end;
 $$ language plpgsql;
-
--- fill dictionaries
-insert into host_auth_method (host_auth_method_name) values 
-	('password'), ('md5'), ('scram-sha-256'), ('certificate'), ('gss'), ('sspi')
-on conflict (host_auth_method_name) do nothing;
-
-insert into ssl_mode (ssl_mode_name) values 
-	('disable'), ('allow'), ('prefer'), ('require'), ('verify-ca'), ('verify-full')
-on conflict (ssl_mode_name) do nothing;

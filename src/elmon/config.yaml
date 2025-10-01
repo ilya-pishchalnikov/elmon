@@ -1,4 +1,5 @@
 metrics-db:
+    environment: "metrics-collector"
     host: "192.168.1.141"
     port: 5432
     user: "${METRICS_DB_USER}"

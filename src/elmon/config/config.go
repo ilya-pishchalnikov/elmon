@@ -15,6 +15,7 @@ import (
 
 type DbConnectionConfig struct {
 	Name                  string `mapstructure:"name"`                   //default Host:Port_DbName
+	Environment           string `mapstructure:"environment"`
 	Host                  string `mapstructure:"host"`
 	Port                  int    `mapstructure:"port"`
 	User                  string `mapstructure:"user"`
@@ -26,6 +27,7 @@ type DbConnectionConfig struct {
 	MaxIdleConnections    int    `mapstructure:"max-idle-connections"`    // default 50
 	ConnectionMaxLifetime int    `mapstructure:"connection-max-lifetime"` // default 3600
 	ConnectionMaxIdleTime int    `mapstructure:"connection-max-idle-time"` //default 1800
+	SqlServerId           *int
 	SqlConnection         *sql.DB
 }
 
@@ -152,6 +154,12 @@ func ClearCache() {
 
 //Validate DatabaseConfig
 func (dbConnectionConfig *DbConnectionConfig) Validate(log *logger.Logger) error {
+	// Validate envirionment name
+	if dbConnectionConfig.Environment == "" {
+		log.Error(fmt.Errorf("server environment name is required"), "error while reading db connection config")
+		return fmt.Errorf("server environment name is required")
+	}
+
 	// Validate database configuration
 	if dbConnectionConfig.Host == "" {
 		log.Error(fmt.Errorf("database host is required"), "error while reading db connection config")

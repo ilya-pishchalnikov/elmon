@@ -131,7 +131,12 @@ func main() {
 	}
 	log.Info("Server-metric assignments loaded")
 
-    fmt.Println(len(serversMetrics.Servers))
+	err = sql.SaveAllServersToMetricsDb(log, serversMetrics, db)
+	if err != nil {
+		log.Error(err, "error loading servers to metrics DB")
+		stdlog.Fatalf("Fatal error loading servers to metrics DB: %v", err)
+	}
+	log.Info("Servers loaded to metrics DB")
 
 	// fmt.Println("--------------------------------------------------------------------------------------")
 
