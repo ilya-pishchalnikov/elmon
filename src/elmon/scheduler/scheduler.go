@@ -2,6 +2,7 @@ package scheduler
 
 import (
 	"context"
+	"elmon/config"
 	"elmon/logger"
 	"fmt"
 	"sync"
@@ -12,7 +13,7 @@ import (
 // TaskFunc defines the function signature to be executed.
 // It should return an error if the execution fails and a retry is needed.
 // The context allows the task to be canceled (aborted) mid-execution.
-type TaskFunc func(ctx context.Context) error
+type TaskFunc func(ctx context.Context, metric *config.ServerMetric) error
 
 // TaskScheduler holds the configuration and state for the periodic task.
 type TaskScheduler struct {
@@ -20,6 +21,7 @@ type TaskScheduler struct {
 	MaxRetries         int
 	RetryDelay         time.Duration
 	Task               TaskFunc
+	Metric             *config.ServerMetric
 	Logger             *logger.Logger // New field for logging
 
 	// Fields for atomic ID generation and tracking
@@ -36,12 +38,13 @@ type TaskScheduler struct {
 
 // NewTaskScheduler creates and returns a new TaskScheduler instance.
 // It requires an initialized slog.Logger instance.
-func NewTaskScheduler(interval time.Duration, maxRetries int, retryDelay time.Duration, task TaskFunc, logger *logger.Logger) *TaskScheduler {
+func NewTaskScheduler(interval time.Duration, maxRetries int, retryDelay time.Duration, task TaskFunc, metric *config.ServerMetric, logger *logger.Logger) *TaskScheduler {
 	return &TaskScheduler{
 		Interval:   interval,
 		MaxRetries: maxRetries,
 		RetryDelay: retryDelay,
 		Task:       task,
+		Metric:     metric,
 		Logger:     logger,
 		stopChan:   make(chan struct{}),
 	}
@@ -63,6 +66,13 @@ func (taskScheduler *TaskScheduler) Start() error {
 	}
 
 	taskScheduler.isRunning = true
+
+	if taskScheduler.Interval <= 0 {
+		err := fmt.Errorf("invalid interval %s in metric '%s'", taskScheduler.Interval.String(), taskScheduler.Metric.Name)
+		taskScheduler.Logger.Error(err, "Error while start scheduler")
+		return err
+	}
+
 	taskScheduler.ticker = time.NewTicker(taskScheduler.Interval)
 
 	go taskScheduler.runLoop()
@@ -198,7 +208,7 @@ func (taskScheduler *TaskScheduler) executeTaskWithRetries(ctx context.Context, 
 			return
 		}
 
-		err := taskScheduler.Task(ctx)
+		err := taskScheduler.Task(ctx, taskScheduler.Metric)
 		
 		if err == nil {
 			taskScheduler.Logger.Info("Task: Completed successfully.")
@@ -223,6 +233,6 @@ func (taskScheduler *TaskScheduler) executeTaskWithRetries(ctx context.Context, 
 		}
 	}
 	
-	taskScheduler.Logger.Error(fmt.Errorf("Task: Failed permanently after all attempts."), "Scheduler task failed", 
+	taskScheduler.Logger.Error(fmt.Errorf("task: Failed permanently after all attempts"), "Scheduler task failed", 
 		"max_attempts", taskScheduler.MaxRetries+1)
 }

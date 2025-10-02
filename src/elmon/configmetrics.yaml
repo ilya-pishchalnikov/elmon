@@ -40,7 +40,7 @@ metric-groups:
         value-type: int64 # ValueTypeInt64
         collection-type: sql
         sql-file: sql/script/metrics/database_perfomance/total_tx.sql
-        
+        interval: 5s
         # Explicitly setting MaxRetries to 0
         max-retries: 0
         

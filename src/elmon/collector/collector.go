@@ -1,94 +1,77 @@
 package collector
 
 import (
-	dbsql "database/sql"
+	"database/sql"
 	"elmon/config"
 	"elmon/logger"
-	"elmon/sql"
+	"elmon/scheduler"
 	"fmt"
-	"os"
-	"reflect"
 )
 
-// CollectFunctions — struct with methods we want to call
-type CollectFunctions struct{}
+type ServerMetricScheduler struct {
+	ServerName string
+	MetricName string
+	Scheduler  *scheduler.TaskScheduler
+}
 
-// ExecuteSql gets the metric value by executing an SQL command
-func (collectFunctions CollectFunctions) ExecuteSql (
-	log *logger.Logger,
-	db *config.DbConnectionConfig, 
-	metric *config.MetricForMapping, 
-	metricDb *dbsql.DB) error {
+// Type for collect metrics from servers and store them into metrics DB
+type Collector struct {
+	ServersMetrics config.ServerMetricMap
+	Logger         *logger.Logger
+	MetricsDb      *sql.DB
+	Schedulers     []ServerMetricScheduler
+}
 
-	sqlScript, err := os.ReadFile(metric.MetricConfig.SQLFile)
-	if err != nil {
-		log.Error(err, fmt.Sprintf("Error while read sql file of metric '%s' for server '%s'", metric.Name, db.Name))
-		return err
+func NewServerMetricsScheduler (serverName string, metricName string, scheduler *scheduler.TaskScheduler) ServerMetricScheduler{
+	return ServerMetricScheduler{
+		ServerName: serverName,
+		MetricName: metricName,
+		Scheduler: scheduler,
+	}
+}
+
+//Collector struct constructor
+func NewCollector(serversMetrics config.ServerMetricMap, logger *logger.Logger, metricsDb *sql.DB) *Collector{
+	var collector = &Collector{
+		ServersMetrics: serversMetrics,
+		Logger: logger,
+		MetricsDb: metricsDb,
 	}
 
-	value, err := sql.ExecuteMetricValueGetScript(db.SqlConnection, string(sqlScript), metric.QueryTimeout.Duration)
-	if err != nil {
-		log.Error(err, fmt.Sprintf("Error while query metric '%s' from server '%s'", metric.Name, db.Name))
-		return err
+	var schedulers []ServerMetricScheduler
+
+	for _, server := range serversMetrics.Servers {
+		for _, metric := range server.Metrics {
+			scheduler := scheduler.NewTaskScheduler(metric.Interval.Duration, metric.MaxRetries, metric.RetryDelay.Duration,ProcessMetric, &metric, metric.Logger)
+			schedulers = append(schedulers, NewServerMetricsScheduler(server.Name, metric.Name, scheduler))
+		}
 	}
 
-	// omit null metrics values
-	if value != nil {
-		err = sql.InsertMetricValue(log, metricDb, metric.MetricConfig.DbMetricId, *db.SqlServerId, value);
-		if err != nil {
-			log.Error(err, fmt.Sprintf("Error while insert metric '%s' from server '%s' into metrics database", metric.Name, db.Name))
+	collector.Schedulers = schedulers;
+
+	return collector;
+}
+
+// Strart all schedulers
+func (collector *Collector) Start() error{
+	for i := range collector.Schedulers {
+		scheduler := collector.Schedulers[i]
+		if err:=scheduler.Scheduler.Start(); err!=nil {
+			scheduler.Scheduler.Logger.Error(err, fmt.Sprintf("Error starting scheduler for server '%s' metric '%s'", scheduler.ServerName, scheduler.MetricName))
 			return err
-		} 
+		}
 	}
+
+	collector.Logger.Info("All schedulers started")
 
 	return nil
 }
 
-
-// CallMethod dynamically calls a struct method and returns an error
-func CallMethod(service interface{}, methodName string, args ...interface{}) error {
-	// 1. Get the reflect.Value of the struct
-	v := reflect.ValueOf(service)
-
-	// 2. Find the method by name
-	method := v.MethodByName(methodName)
-	if !method.IsValid() {
-		return fmt.Errorf("method '%s' not found in struct", methodName)
+// Stop all schedulers
+func (collector *Collector) Stop() {
+	for i := range collector.Schedulers {
+		scheduler := collector.Schedulers[i]
+		scheduler.Scheduler.Stop();
 	}
-
-	// 3. Prepare arguments for the call
-	in := make([]reflect.Value, len(args))
-	for i, arg := range args {
-		if arg == nil {
-			// Специальная обработка для nil интерфейсов/указателей
-			if method.Type().NumIn() > i {
-				in[i] = reflect.Zero(method.Type().In(i))
-			} else {
-				return fmt.Errorf("argument %d is nil, but method signature mismatch", i)
-			}
-		} else {
-			in[i] = reflect.ValueOf(arg)
-		}
-	}
-
-	// 4. Execute the method call
-	out := method.Call(in)
-
-	// 5. Process the return value (expecting one result of type error)
-	if len(out) == 0 {
-		return nil
-	}
-
-	resultValue := out[0]
-
-	if !resultValue.IsNil() {
-		// Convert reflect.Value to error
-		err, ok := resultValue.Interface().(error)
-		if !ok {
-			return fmt.Errorf("return value could not be converted to error")
-		}
-		return err
-	}
-
-	return nil
+	collector.Logger.Info("All schedulers stopped")
 }

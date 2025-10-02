@@ -1,6 +1,7 @@
 package config
 
 import (
+	"database/sql"
 	"elmon/logger"
 	"fmt"
 	"strings"
@@ -11,19 +12,22 @@ import (
 )
 
 // MetricForMapping holds overridden collection parameters for a specific metric on a server.
-type MetricForMapping struct {
+type ServerMetric struct {
 	Name         string   `mapstructure:"name"`
 	Interval     Duration `mapstructure:"interval"`
 	MaxRetries   int      `mapstructure:"max-retries"`
 	RetryDelay   Duration `mapstructure:"retry-delay"`
 	QueryTimeout Duration `mapstructure:"query-timeout"`
 	MetricConfig *Metric // Pointer to the metric's base configuration
+	ServerConfig *DbConnectionConfig
+	Logger       *logger.Logger
+	MetricDb     *sql.DB
 }
 
 // ServerMetricMapItem represents a single server and the list of metrics assigned to it.
 type ServerMetricMapItem struct {
 	Name    string             `mapstructure:"name"`
-	Metrics []MetricForMapping `mapstructure:"metrics"`
+	Metrics []ServerMetric `mapstructure:"metrics"`
 	Config  *DbConnectionConfig // Pointer to the server's connection configuration
 }
 
@@ -34,7 +38,7 @@ type ServerMetricMap struct {
 }
 
 // Load loads the server-to-metric mapping configuration from a YAML file.
-func (l *ServerMetricMap) Load(log *logger.Logger, configFile string, servers DbServers, metrics MetricsConfig) (*ServerMetricMap, error) {
+func (l *ServerMetricMap) Load(log *logger.Logger, configFile string, servers DbServers, metrics MetricsConfig, metricDb *sql.DB) (*ServerMetricMap, error) {
 	// Load .env file if exists (for future environment variable support)
 	envFile := ".env"
 	if err := godotenv.Load(envFile); err == nil {
@@ -99,7 +103,7 @@ func (l *ServerMetricMap) Load(log *logger.Logger, configFile string, servers Db
 	}
 
 	// Validate configuration
-	if err := config.Validate(log, &config, servers, metrics); err != nil {
+	if err := config.Validate(log, &config, servers, metrics, metricDb); err != nil {
 		err = fmt.Errorf("config file '%s' validation failed: %w", configFile, err)
 		log.Error(err, "config file validation failed")
 		return nil, err
@@ -110,7 +114,7 @@ func (l *ServerMetricMap) Load(log *logger.Logger, configFile string, servers Db
 }
 
 // Validate validates the server-metric mapping configuration.
-func (l *ServerMetricMap) Validate(log *logger.Logger, config *ServerMetricMap, servers DbServers, metrics MetricsConfig) error {
+func (l *ServerMetricMap) Validate(log *logger.Logger, config *ServerMetricMap, servers DbServers, metrics MetricsConfig, metricDb *sql.DB) error {
 
 	serverNames := make(map[string]bool)
 	for serverIndex := range l.Servers {
@@ -135,7 +139,7 @@ func (l *ServerMetricMap) Validate(log *logger.Logger, config *ServerMetricMap, 
 		// Validate metrics assigned to this server
 		for metricIndex := range server.Metrics {
 			metric := &server.Metrics[metricIndex]
-			if err := metric.Validate(log, config, metrics, l.viper, serverIndex, metricIndex); err != nil {
+			if err := metric.Validate(log, config, metrics, l.viper, server, serverIndex, metricIndex, metricDb); err != nil {
 				err := fmt.Errorf("invalid metric '%s' (index %d) for server '%s' (index %d): %w", metric.Name, metricIndex, server.Name, serverIndex, err)
 				log.Error(err, "Error while parsing server-metric mapping config")
 				return err
@@ -157,7 +161,7 @@ func (l *ServerMetricMap) Validate(log *logger.Logger, config *ServerMetricMap, 
 }
 
 // Validate ensures the metric entry is valid and links it to the base metric config.
-func (l *MetricForMapping) Validate(log *logger.Logger, config *ServerMetricMap, metrics MetricsConfig, viper *viper.Viper, serverIndex int, metricIndex int) error {
+func (l *ServerMetric) Validate(log *logger.Logger, config *ServerMetricMap, metrics MetricsConfig, viper *viper.Viper, server *ServerMetricMapItem, serverIndex int, metricIndex int, metricDb *sql.DB) error {
 	if l.Name == "" {
 		err := fmt.Errorf("metric entry must have a name")
 		log.Error(err, "Error while parsing server-metric mapping config")
@@ -192,5 +196,20 @@ func (l *MetricForMapping) Validate(log *logger.Logger, config *ServerMetricMap,
 		l.QueryTimeout = l.MetricConfig.QueryTimeout
 	}
 
+	l.ServerConfig = server.Config
+
+	l.Logger = log
+
+	l.MetricDb = metricDb
+
 	return nil
 }
+
+func (l *ServerMetric) GetMethodName() string {
+	methodName := l.MetricConfig.GoFunction
+	if l.MetricConfig.CollectionType == "sql" {
+		methodName = "ExecuteSql"
+	}
+	return methodName
+}
+

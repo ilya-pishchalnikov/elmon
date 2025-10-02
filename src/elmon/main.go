@@ -11,6 +11,7 @@ import (
 	stdlog "log"
 	"log/slog"
 	"os"
+	"time"
 )
 
 func main() {
@@ -125,7 +126,7 @@ func main() {
 	var serversMetrics *config.ServerMetricMap
 
 	// Load server-metric assignments
-	serversMetrics, err = serversMetrics.Load(log, "configserversmetrics.yaml", *servers, *metricsCfg)
+	serversMetrics, err = serversMetrics.Load(log, "configserversmetrics.yaml", *servers, *metricsCfg, db)
 	if err != nil {
 		log.Error(err, "error loading server-metric assignments")
 		stdlog.Fatalf("Fatal error loading server-metric assignments: %v", err)
@@ -139,24 +140,12 @@ func main() {
 	}
 	log.Info("Servers loaded to metrics DB")
 
-	 fmt.Println("--------------------------------------------------------------------------------------")
+	collector := collector.NewCollector(*serversMetrics, log, db);
 
-	// 2. Вызов CallMethodAndReturnError
-	fmt.Println("--- STARTING DYNAMIC CALL ---")
-	err = collector.CallMethod(
-		collector.CollectFunctions{}, // service
-		"ExecuteSql",       // methodName
-		log,           // arg 1: *Logger
-		serversMetrics.Servers[0].Config,           // arg 2: *DbConnectionConfig
-		&serversMetrics.Servers[0].Metrics[0],             // arg 3: *MetricForMapping
-		db,          // arg 4: *dbsql.DB
-	)
-	fmt.Println("--- ENDING DYNAMIC CALL ---")
+	collector.Start()
 
-	if err != nil {
-		fmt.Printf("Dynamic call failed: %v\n", err)
-	} else {
-		fmt.Println("Dynamic call completed successfully (simulated).")
-	}
+	time.Sleep(2 * time.Minute)
+
+	collector.Stop()
 
 }

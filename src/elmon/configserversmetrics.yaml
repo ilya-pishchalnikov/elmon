@@ -10,3 +10,4 @@ servers:
                 query-timeout: 5s
             -
                 name: total_transactions
+                query-timeout: 5s
