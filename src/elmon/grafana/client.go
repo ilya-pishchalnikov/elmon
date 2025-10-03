@@ -1,7 +1,6 @@
 package grafana
 
 import (
-	"elmon/config"
 	"elmon/logger"
 	"fmt"
 	"net/http"
@@ -9,50 +8,48 @@ import (
 	"time"
 )
 
-// APIClient represents a Grafana API client with dynamic endpoint support
+// ApiClient represents Grafana API client
 type ApiClient struct {
-    Url        string
-    Token      string
-    HttpClient *http.Client
+	URL        string
+	Token      string
+	HttpClient *http.Client
 	Headers    map[string]string
 }
 
-// New creates a new instance of Grafana APIClient
-func NewClient(config config.GrafanaConfig) *ApiClient {
-    
-	if config.Timeout == 0 {
-        config.Timeout = 30
-    }
-    
-    client := &ApiClient{
-        Url: strings.TrimSuffix(config.Url, "/"),
-        Token:  config.Token,
-        HttpClient: &http.Client{
-            Timeout: time.Duration(config.Timeout) * time.Second,
-		},
-    }
-    
-    client.setDefaultHeaders()
+// NewClient now accepts local ClientParams type
+func NewClient(params ClientParams) *ApiClient {
+	if params.Timeout == 0 {
+		params.Timeout = 30 // Default value
+	}
 
+	client := &ApiClient{
+		URL:   strings.TrimSuffix(params.URL, "/"),
+		Token: params.Token,
+		HttpClient: &http.Client{
+			Timeout: time.Duration(params.Timeout) * time.Second,
+		},
+	}
+
+	client.setDefaultHeaders()
 	return client
 }
 
 // setDefaultHeaders sets default HTTP headers for API requests
 func (apiClient *ApiClient) setDefaultHeaders() {
-    if apiClient.Headers == nil {
-        apiClient.Headers = make(map[string]string)
-    }
-    
-    apiClient.Headers["Authorization"] = "Bearer " + apiClient.Token
-    apiClient.Headers["Content-Type"] = "application/json"
-    apiClient.Headers["Accept"] = "application/json"
+	if apiClient.Headers == nil {
+		apiClient.Headers = make(map[string]string)
+	}
+
+	apiClient.Headers["Authorization"] = "Bearer " + apiClient.Token
+	apiClient.Headers["Content-Type"] = "application/json"
+	apiClient.Headers["Accept"] = "application/json"
 }
 
 // Health performs a request to the Grafana health endpoint (/api/health)
 // and returns the raw HTTP response or an error.
-func ( client *ApiClient) Health(log *logger.Logger) (*http.Response, error) {
+func (client *ApiClient) Health(log *logger.Logger) (*http.Response, error) {
 	// 1. Construct the full API URL
-	endpoint := fmt.Sprintf("%s/api/health", client.Url)
+	endpoint := fmt.Sprintf("%s/api/health", client.URL)
 
 	// 2. Create a new GET request
 	request, err := http.NewRequest("GET", endpoint, nil)
@@ -64,8 +61,7 @@ func ( client *ApiClient) Health(log *logger.Logger) (*http.Response, error) {
 	for key, value := range client.Headers {
 		request.Header.Set(key, value)
 	}
-	
-	
+
 	// 4. Execute the request using the internal http.Client
 	response, err := client.HttpClient.Do(request)
 	if err != nil {
@@ -87,8 +83,8 @@ func ( client *ApiClient) Health(log *logger.Logger) (*http.Response, error) {
 // GetDashboardByID fetches a dashboard by its UID.
 // This is an example of another method to illustrate the OOP style.
 func (client *ApiClient) GetDashboardByID(log *logger.Logger, uid string) (*http.Response, error) {
-	endpoint := fmt.Sprintf("%s/api/dashboards/uid/%s", client.Url, uid)
-	
+	endpoint := fmt.Sprintf("%s/api/dashboards/uid/%s", client.URL, uid)
+
 	request, err := http.NewRequest("GET", endpoint, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create dashboard request: %w", err)
@@ -97,7 +93,7 @@ func (client *ApiClient) GetDashboardByID(log *logger.Logger, uid string) (*http
 	for key, value := range client.Headers {
 		request.Header.Set(key, value)
 	}
-	
+
 	response, err := client.HttpClient.Do(request)
 	if err != nil {
 		log.Error(err, "failed to execute grafana dashboard request")
@@ -109,6 +105,6 @@ func (client *ApiClient) GetDashboardByID(log *logger.Logger, uid string) (*http
 	} else {
 		log.Warn("grafana dashboard request not passed", "dashboard_id", uid, "StatusCode", response.StatusCode)
 	}
-	
+
 	return response, nil
 }

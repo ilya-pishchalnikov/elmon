@@ -1,8 +1,7 @@
+// File: collector.go
 package collector
 
 import (
-	"database/sql"
-	"elmon/config"
 	"elmon/logger"
 	"elmon/scheduler"
 	"fmt"
@@ -14,49 +13,47 @@ type ServerMetricScheduler struct {
 	Scheduler  *scheduler.TaskScheduler
 }
 
-// Type for collect metrics from servers and store them into metrics DB
+// Collector handles metric collection from servers and storage into metrics database
 type Collector struct {
-	ServersMetrics config.ServerMetricMap
-	Logger         *logger.Logger
-	MetricsDb      *sql.DB
-	Schedulers     []ServerMetricScheduler
+	Logger     *logger.Logger
+	Schedulers []ServerMetricScheduler
 }
 
-func NewServerMetricsScheduler (serverName string, metricName string, scheduler *scheduler.TaskScheduler) ServerMetricScheduler{
-	return ServerMetricScheduler{
-		ServerName: serverName,
-		MetricName: metricName,
-		Scheduler: scheduler,
-	}
-}
-
-//Collector struct constructor
-func NewCollector(serversMetrics config.ServerMetricMap, logger *logger.Logger, metricsDb *sql.DB) *Collector{
-	var collector = &Collector{
-		ServersMetrics: serversMetrics,
-		Logger: logger,
-		MetricsDb: metricsDb,
-	}
+// Collector constructor
+func NewCollector(
+	tasks []*MetricTask,
+	log *logger.Logger,
+) *Collector {
 
 	var schedulers []ServerMetricScheduler
-
-	for _, server := range serversMetrics.Servers {
-		for _, metric := range server.Metrics {
-			scheduler := scheduler.NewTaskScheduler(metric.Interval.Duration, metric.MaxRetries, metric.RetryDelay.Duration,ProcessMetric, &metric, metric.Logger)
-			schedulers = append(schedulers, NewServerMetricsScheduler(server.Name, metric.Name, scheduler))
-		}
+	for _, task := range tasks {
+		// Create scheduler with universal task
+		sch := scheduler.NewTaskScheduler(
+			task.Interval,
+			task.MaxRetries,
+			task.RetryDelay,
+			ProcessMetric, // Our executor function
+			task,          // Task payload
+			task.Logger,
+		)
+		schedulers = append(schedulers, ServerMetricScheduler{
+			ServerName: task.ServerName,
+			MetricName: task.MetricName,
+			Scheduler:  sch,
+		})
 	}
 
-	collector.Schedulers = schedulers;
-
-	return collector;
+	return &Collector{
+		Logger:     log,
+		Schedulers: schedulers,
+	}
 }
 
-// Strart all schedulers
-func (collector *Collector) Start() error{
+// Start all schedulers
+func (collector *Collector) Start() error {
 	for i := range collector.Schedulers {
 		scheduler := collector.Schedulers[i]
-		if err:=scheduler.Scheduler.Start(); err!=nil {
+		if err := scheduler.Scheduler.Start(); err != nil {
 			scheduler.Scheduler.Logger.Error(err, fmt.Sprintf("Error starting scheduler for server '%s' metric '%s'", scheduler.ServerName, scheduler.MetricName))
 			return err
 		}
@@ -71,7 +68,7 @@ func (collector *Collector) Start() error{
 func (collector *Collector) Stop() {
 	for i := range collector.Schedulers {
 		scheduler := collector.Schedulers[i]
-		scheduler.Scheduler.Stop();
+		scheduler.Scheduler.Stop()
 	}
 	collector.Logger.Info("All schedulers stopped")
 }

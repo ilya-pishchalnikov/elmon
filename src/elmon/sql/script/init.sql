@@ -5,7 +5,6 @@ create table if not exists server (
 	name varchar(255) not null,
 	host varchar(255) not null,
 	port smallint not null,
-	host_auth_method varchar(20) null,
 	timezone varchar(20),
 	ssl_mode varchar(20) null,
 	description text null,
@@ -18,7 +17,6 @@ create table if not exists server (
 	constraint uq_server_name unique(name),
 
 	constraint chk_server_port check (port between 1 and 65535),
-	constraint chk_server_host_auth_method check (host_auth_method in ('password', 'md5', 'scram-sha-256', 'certificate', 'gss', 'sspi')),
 	constraint chk_server_ssl_mode check (ssl_mode in ('disable', 'allow', 'prefer', 'require', 'verify-ca', 'verify-full'))
 	
 );

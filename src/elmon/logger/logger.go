@@ -2,12 +2,18 @@ package logger
 
 import (
 	"context"
-	"elmon/configlog"
 	"log/slog"
 	"os"
 	"runtime"
 	"time"
 )
+
+//Logger config
+type Config struct {
+	Level    string // debug, info, warn, error
+	Format   string // json, text
+	FileName string // File name or empty string for console output
+}
 
 // Logger provides a wrapper around slog.Logger.
 type Logger struct {
@@ -45,7 +51,7 @@ func New(level slog.Level, isJSON bool, logFileName string) (*Logger, error) {
 }
 
 // NewByConfig creates a new logger instance based on the provided configuration.
-func NewByConfig(config configlog.LogConfig) (*Logger, error) {
+func NewByConfig(config Config) (*Logger, error) {
 	logFileName := config.FileName
 	level := parseLevel(config.Level)
 	isJson := config.Format == "json"

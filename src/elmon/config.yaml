@@ -1,19 +1,99 @@
+# Unified application configuration file
+
+# ======================================================
+# Section from: configlog.yaml
+# ======================================================
+log:
+  level: "debug"
+  format: "json"
+  file: ""
+
+# ======================================================
+# Section from: config.yaml
+# ======================================================
 metrics-db:
-    environment: "metrics-collector"
+  environment: "metrics-collector"
+  host: "192.168.1.141"
+  port: 5432
+  user: "${METRICS_DB_USER}"
+  password: "${METRICS_DB_PASSWORD}"
+  dbname: "metrics"
+
+grafana:
+  url: "${METRICS_GRAFANA_URL}"
+  token: "${METRICS_GRAFANA_TOKEN}"
+
+# ======================================================
+# Section from: configservers.yaml
+# ======================================================
+db-servers:
+  - # test target server
+    name: "test_target_server"
+    environment: "test"
     host: "192.168.1.141"
-    port: 5432
-    user: "${METRICS_DB_USER}"
-    password: "${METRICS_DB_PASSWORD}"
-    dbname: "metrics"
-    # host-auth-method: "md5"
-    # ssl-mode: "disable"
-    # max-open-connections: 100
-    # max-idle-connections: 50
-    # connection-max-lifetime: 3600
-    # connection-max-idle-time: 1800
-grafana:    
-    url: "${METRICS_GRAFANA_URL}"
-    token: "${METRICS_GRAFANA_TOKEN}"
-    # timeout: 30
-# server:
-#     port: 8080
+    port: 5433
+    user: "${METRICS_TEST_DB_USER}"
+    password: "${METRICS_TEST_DB_PASSWORD}"
+    DbName: "application"
+
+# ======================================================
+# Section from: configmetrics.yaml
+# ======================================================
+metrics:
+  version: "1.0"
+  description: "Configuration for monitoring core database metrics"
+  global:
+    default-interval: 30s
+    default-query-timeout: 15s
+    default-max-retries: 0
+    default-retry-delay: 1s
+  metric-groups:
+    - name: database_performance
+      description: Key metrics for database performance
+      enabled: true
+      metrics:
+        - name: cache_hit_ratio
+          value-type: float
+          collection-type: sql
+          sql-file: sql/script/metrics/database_perfomance/cache_hit.sql
+          interval: 1m
+          max-retries: 5
+          unit: "percent"
+        - name: total_transactions
+          value-type: int64
+          collection-type: sql
+          sql-file: sql/script/metrics/database_perfomance/total_tx.sql
+          interval: 5s
+          max-retries: 0
+    - name: system_health
+      description: Operating system health metrics
+      enabled: true
+      metrics:
+        - name: cpu_load
+          value-type: float
+          collection-type: go_func
+          go-function: "GetHostCPU"
+          query-timeout: 5s
+          unit: "percentage"
+        - name: host_status
+          description: Host accessibility check
+          value-type: bool
+          collection-type: go_func
+          go-function: "IsHostReachable"
+          retry-delay: 1s
+
+# ======================================================
+# Section from: configserversmetrics.yaml
+# Note: The root key is changed from 'servers' to 'servers-metrics-map'
+# to match the AppConfig struct tag.
+# ======================================================
+servers-metrics-map:
+  - name: test_target_server
+    metrics:
+      - name: cache_hit_ratio
+        interval: 10s
+        max-retries: 0
+        retry-delay: 0s
+        query-timeout: 5s
+      - name: total_transactions
+        query-timeout: 5s

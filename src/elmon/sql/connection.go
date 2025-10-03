@@ -2,7 +2,6 @@ package sql
 
 import (
 	"database/sql"
-	"elmon/config"
 	"elmon/logger"
 	"fmt"
 	"time"
@@ -10,50 +9,53 @@ import (
 	_ "github.com/lib/pq"
 )
 
-// Connect establishes a connection to a single database server using the provided configuration.
-func Connect(log *logger.Logger, config *config.DbConnectionConfig) (*sql.DB, error) {
-	// Basic connection parameters
-	connectionString := fmt.Sprintf("host=%s port=%d user=%s dbname=%s sslmode=%s",
-		config.Host, config.Port, config.User, config.DbName, config.SslMode)
+// Connect now accepts local ConnectionParams type and doesn't depend on config
+func Connect(log *logger.Logger, params ConnectionParams) (*sql.DB, error) {
 
-	// Add password parameter only for password-based authentication methods
-	// HostAuthMethod is used to determine if the password field should be included in the connection string.
-	// Methods like 'certificate', 'gss', 'sspi' typically do not require 'password'.
-	switch config.HostAuthMethod {
-	case "password", "md5", "scram-sha-256":
-		// Append password only if required
-		connectionString += fmt.Sprintf(" password=%s", config.Password)
-	// For other methods (e.g., "certificate", "gss", "sspi"), the password is not included.
+	if params.SslMode == "" {
+		params.SslMode = "disable"
 	}
+
+	connectionString := fmt.Sprintf("host=%s port=%d user=%s password=%s dbname=%s sslmode=%s",
+		params.Host, params.Port, params.User, params.Password, params.DbName, params.SslMode)
 
 	connection, err := sql.Open("postgres", connectionString)
 	if err != nil {
-		log.Error(err, "error while open database")
-		return connection, err
+		log.Error(err, "error while opening database connection")
+		return nil, err
 	}
 
-	// Set connection pool parameters
-	connection.SetMaxOpenConns(config.MaxOpenConnections)
-	connection.SetMaxIdleConns(config.MaxIdleConnections)
-	connection.SetConnMaxLifetime(time.Duration(config.ConnectionMaxLifetime) * time.Second)
-	connection.SetConnMaxIdleTime(time.Duration(config.ConnectionMaxIdleTime) * time.Second)
+	connection.SetMaxOpenConns(params.MaxOpenConnections)
+	connection.SetMaxIdleConns(params.MaxIdleConnections)
+	connection.SetConnMaxLifetime(time.Duration(params.ConnectionMaxLifetime) * time.Second)
+	connection.SetConnMaxIdleTime(time.Duration(params.ConnectionMaxIdleTime) * time.Second)
 
-	// Store the active connection object in the configuration structure
-	config.SqlConnection = connection
+	// Test connection
+	if err := connection.Ping(); err != nil {
+		log.Error(err, "error pinging database")
+		connection.Close() // Close connection if ping fails
+		return nil, err
+	}
 
-	return connection, err
+	return connection, nil
 }
 
-// ConnectAll iterates through all configured database servers and establishes a connection for each one.
-func ConnectAll(log *logger.Logger, config *config.DbServers) error {
-	for serverIndex := range config.Servers {
-		server := &config.Servers[serverIndex]
-		_, err := Connect(log, server)
+// ConnectAll now accepts slice of local ConnectionParams
+func ConnectAll(log *logger.Logger, serverParams []ConnectionParams) (map[string]*sql.DB, error) {
+	connections := make(map[string]*sql.DB)
+	for _, params := range serverParams {
+		serverName := params.Name
+		conn, err := Connect(log, params)
 		if err != nil {
-			log.Error(err, "error while open database")
-			return err
+			// In case of error, close all already opened connections
+			for _, c := range connections {
+				c.Close()
+			}
+			return nil, fmt.Errorf("failed to connect to server %s: %w", serverName, err)
 		}
+		connections[serverName] = conn
+		log.Info("Successfully connected", "server", serverName)
 	}
 
-	return nil
+	return connections, nil
 }

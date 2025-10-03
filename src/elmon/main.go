@@ -3,77 +3,74 @@ package main
 import (
 	"elmon/collector"
 	"elmon/config"
-	"elmon/configlog"
 	"elmon/grafana"
 	"elmon/logger"
 	"elmon/sql"
-	"fmt"
 	stdlog "log"
 	"log/slog"
 	"os"
-	"time"
 )
 
 func main() {
-	// Load logging configuration
-	logconfig, err := configlog.Load("configlog.yaml")
+	// 1. Load configuration
+	appConfig, err := config.Load("config.yaml")
 	if err != nil {
-		stdlog.Fatalf("Fatal error reading log configuration: %v", err)
+		stdlog.Fatalf("FATAL: Failed to load configuration: %v", err)
 	}
 
-	// Initialize application logger
-	log, err := logger.NewByConfig(*logconfig)
+	// 2. Initialize logger
+	log, err := logger.NewByConfig(logger.Config{
+		Level:    appConfig.Log.Level,
+		Format:   appConfig.Log.Format,
+		FileName: appConfig.Log.File,
+	})
 	if err != nil {
-		stdlog.Fatalf("Fatal error initializing logger: %v", err)
+		stdlog.Fatalf("FATAL: Failed to initialize logger: %v", err)
 	}
-
 	slog.SetDefault(log.Logger)
-
 	log.Info("Logger started")
 
-	// Load main application configuration
-	conf, err := config.Load(log, "config.yaml")
-	if err != nil {
-		stdlog.Fatalf("Fatal error reading application configuration: %v", err)
+	// 3. Connect to metrics database
+	metricsDBParams := sql.ConnectionParams{
+		Host:                  appConfig.MetricsDB.Host,
+		Port:                  appConfig.MetricsDB.Port,
+		User:                  appConfig.MetricsDB.User,
+		Password:              appConfig.MetricsDB.Password,
+		DbName:                appConfig.MetricsDB.DbName,
+		SslMode:               appConfig.MetricsDB.SslMode,
+		MaxOpenConnections:    appConfig.MetricsDB.MaxOpenConnections,
+		MaxIdleConnections:    appConfig.MetricsDB.MaxIdleConnections,
+		ConnectionMaxLifetime: appConfig.MetricsDB.ConnectionMaxLifetime,
+		ConnectionMaxIdleTime: appConfig.MetricsDB.ConnectionMaxIdleTime,
 	}
 
-	log.Info("Application configuration loaded")
-
-	// Connect to the metrics database server
-	db, err := sql.Connect(log, &conf.MetricsDb)
+	db, err := sql.Connect(log, metricsDBParams)
 	if err != nil {
 		log.Error(err, "error connecting to metrics database server")
 		stdlog.Fatalf("Fatal error connecting to metrics SQL server: %v", err)
 	}
-
+	defer db.Close()
 	log.Info("Metrics database server connected")
 
-	// Test the database connection
-	err = conf.MetricsDb.SqlConnection.Ping()
-	if err != nil {
-		log.Error(err, "error pinging metrics database server")
-		stdlog.Fatalf("Fatal error connecting to metrics database server: %v", err)
-	}
-
-	// Read the initial SQL script from the file
+	// 4. Execute database migrations
 	sqlBytes, err := os.ReadFile("sql/script/init.sql")
 	if err != nil {
 		log.Error(err, "error opening initial SQL script file")
-		stdlog.Fatalf("Fatal error opening initial SQL script file: %v", err)
+		stdlog.Fatalf("Fatal error: %v", err)
 	}
-	sqlScript := string(sqlBytes)
-
-	// Execute the initial script (e.g., table creation, dictionary insertion)
-	_, err = db.Exec(sqlScript)
-	if err != nil {
+	if _, err = db.Exec(string(sqlBytes)); err != nil {
 		log.Error(err, "failed to execute initial SQL script")
-		stdlog.Fatalf("Fatal error executing initial SQL script: %v", err)
+		stdlog.Fatalf("Fatal error: %v", err)
 	}
-
 	log.Info("Initial SQL script executed successfully")
 
 	// Initialize Grafana client
-	grafanaClient := grafana.NewClient(conf.Grafana)
+	grafanaParams := grafana.ClientParams{
+		URL:     appConfig.Grafana.Url,
+		Token:   appConfig.Grafana.Token,
+		Timeout: appConfig.Grafana.Timeout,
+	}
+	grafanaClient := grafana.NewClient(grafanaParams)
 
 	// Check Grafana connection status
 	response, err := grafanaClient.Health(log)
@@ -82,70 +79,162 @@ func main() {
 	} else {
 		log.Info("Grafana connected")
 	}
-	// Safely close the HTTP response body
 	if response != nil && response.Body != nil {
 		defer response.Body.Close()
 	}
 
-	// Initialize metrics config loader
-	loader := config.NewMetricsConfigLoader(".")
-
-	// Load metrics configuration
-	metricsCfg, err := loader.Load(log, "configmetrics.yaml")
-	if err != nil {
-		log.Error(err, "Error loading metrics configuration")
-		stdlog.Fatalf("Fatal error loading metrics configuration: %v", err)
+	// 5. Save metrics configuration to database
+	metricsForDB := &sql.MetricConfigForDB{}
+	metricMap := make(map[string]*sql.MetricInfo) // Map for quick metric lookup by name
+	for _, group := range appConfig.Metrics.MetricGroups {
+		g := &sql.MetricGroupInfo{Name: group.Name, Description: group.Description}
+		for _, metric := range group.Metrics {
+			m := &sql.MetricInfo{Name: metric.Name, Description: metric.Description}
+			g.Metrics = append(g.Metrics, m)
+			metricMap[m.Name] = m // Populate the map
+		}
+		metricsForDB.MetricGroups = append(metricsForDB.MetricGroups, g)
 	}
-
-	log.Info(fmt.Sprintf("Loaded metrics config version '%s'", metricsCfg.Version))
-
-	// Insert metric groups and metrics into the database
-	err = sql.InsertMetricsToDB(log, metricsCfg, db)
+	err = sql.InsertMetricsToDB(log, metricsForDB, db)
 	if err != nil {
 		log.Error(err, "Error inserting metrics into database")
-		stdlog.Fatalf("Fatal error inserting metrics into database: %v", err)
+		stdlog.Fatalf("Fatal error: %v", err)
 	}
 
-	// Load database servers configuration
-	var servers *config.DbServers
+	// 6. Connect to all monitored database servers
+	var allServerParams []sql.ConnectionParams
+	serverInfoMap := make(map[string]*sql.ServerInfo) // Map to link server name with server info
+	for _, srvCfg := range appConfig.DBServers {
+		params := sql.ConnectionParams{
+			Name:                  srvCfg.Name,
+			Host:                  srvCfg.Host,
+			Port:                  srvCfg.Port,
+			User:                  srvCfg.User,
+			Password:              srvCfg.Password,
+			DbName:                srvCfg.DbName,
+			SslMode:               srvCfg.SslMode,
+			MaxOpenConnections:    srvCfg.MaxOpenConnections,
+			MaxIdleConnections:    srvCfg.MaxIdleConnections,
+			ConnectionMaxLifetime: srvCfg.ConnectionMaxLifetime,
+			ConnectionMaxIdleTime: srvCfg.ConnectionMaxIdleTime,
+		}
+		allServerParams = append(allServerParams, params)
 
-	servers, err = config.LoadDbServers(log, "configservers.yaml")
-	if err != nil {
-		log.Error(err, "Error loading database servers configuration")
-		stdlog.Fatalf("Fatal error loading database servers configuration: %v", err)
+		info := &sql.ServerInfo{
+			Name:        srvCfg.Name,
+			Environment: srvCfg.Environment,
+			Host:        srvCfg.Host,
+			Port:        srvCfg.Port,
+			SslMode:     srvCfg.SslMode,
+		}
+		serverInfoMap[info.Name] = info
 	}
 
-	// Establish connections to all configured DB servers
-	err = sql.ConnectAll(log, servers)
+	// connections is now map[string]*sql.DB where key is unique server name
+	connections, err := sql.ConnectAll(log, allServerParams)
 	if err != nil {
 		log.Error(err, "Error establishing connections to database servers")
-		stdlog.Fatalf("Fatal error establishing connections to database servers: %v", err)
+		stdlog.Fatalf("Fatal error: %v", err)
 	}
-	log.Info("Connection to database servers established")
+	// Don't forget to close all connections on exit
+	defer func() {
+		for _, conn := range connections {
+			conn.Close()
+		}
+	}()
+	log.Info("Connection to all database servers established")
 
-	var serversMetrics *config.ServerMetricMap
-
-	// Load server-metric assignments
-	serversMetrics, err = serversMetrics.Load(log, "configserversmetrics.yaml", *servers, *metricsCfg, db)
-	if err != nil {
-		log.Error(err, "error loading server-metric assignments")
-		stdlog.Fatalf("Fatal error loading server-metric assignments: %v", err)
+	// 7. Save server information to metrics database
+	var serversToSave []*sql.ServerInfo
+	for _, info := range serverInfoMap {
+		serversToSave = append(serversToSave, info)
 	}
-	log.Info("Server-metric assignments loaded")
-
-	err = sql.SaveAllServersToMetricsDb(log, serversMetrics, db)
+	err = sql.SaveAllServersToMetricsDb(log, serversToSave, db)
 	if err != nil {
-		log.Error(err, "error loading servers to metrics DB")
-		stdlog.Fatalf("Fatal error loading servers to metrics DB: %v", err)
+		log.Error(err, "error saving servers to metrics DB")
+		stdlog.Fatalf("Fatal error: %v", err)
 	}
 	log.Info("Servers loaded to metrics DB")
 
-	collector := collector.NewCollector(*serversMetrics, log, db);
+	log.Info("Assembling metric tasks for the collector...")
+	var metricTasks []*collector.MetricTask
 
-	collector.Start()
+	// Create lookup maps for faster access by name
+	metricsConfigMap := make(map[string]config.Metric)
+	for _, group := range appConfig.Metrics.MetricGroups {
+		for _, metric := range group.Metrics {
+			metricsConfigMap[metric.Name] = metric
+		}
+	}
 
-	time.Sleep(2 * time.Minute)
+	// Create metric tasks based on server-metric mappings
+	for _, mapping := range appConfig.ServerMetricsMap {
+		serverInfo, ok := serverInfoMap[mapping.Name]
+		if !ok {
+			log.Warn("Server from mapping not found in server list, skipping", "server", mapping.Name)
+			continue
+		}
 
-	collector.Stop()
+		targetDBConn, ok := connections[serverInfo.Name]
+		if !ok {
+			log.Warn("Active connection for server not found, skipping", "server", mapping.Name)
+			continue
+		}
 
+		for _, metricOverride := range mapping.Metrics {
+			metricInfo, ok := metricMap[metricOverride.Name]
+			if !ok {
+				log.Warn("Metric from mapping not found in metric list, skipping", "metric", metricOverride.Name)
+				continue
+			}
+
+			baseMetricConfig := metricsConfigMap[metricOverride.Name]
+
+			// Create task combining base and overridden parameters
+			task := &collector.MetricTask{
+				ServerName:     serverInfo.Name,
+				MetricName:     metricInfo.Name,
+				ServerID:       *serverInfo.ID,
+				MetricID:       metricInfo.DbMetricID,
+				CollectionType: baseMetricConfig.CollectionType,
+				SQLFile:        baseMetricConfig.SQLFile,
+				GoFunction:     baseMetricConfig.GoFunction,
+				Interval:       metricOverride.Interval.Duration, // Apply overrides
+				MaxRetries:     metricOverride.MaxRetries,
+				RetryDelay:     metricOverride.RetryDelay.Duration,
+				QueryTimeout:   metricOverride.QueryTimeout.Duration,
+				Logger:         log,
+				TargetDB:       targetDBConn,
+				MetricsDB:      db,
+			}
+
+			// Use global/base values if overrides are not provided
+			if task.Interval == 0 {
+				task.Interval = baseMetricConfig.Interval.Duration
+			}
+			if task.MaxRetries == 0 {
+				task.MaxRetries = baseMetricConfig.MaxRetries
+			}
+			if task.RetryDelay == 0 {
+				task.RetryDelay = baseMetricConfig.RetryDelay.Duration
+			}
+			if task.QueryTimeout == 0 {
+				task.QueryTimeout = baseMetricConfig.QueryTimeout.Duration
+			}
+
+			metricTasks = append(metricTasks, task)
+		}
+	}
+
+	log.Info("Initializing and starting the collector", "task_count", len(metricTasks))
+	collector := collector.NewCollector(metricTasks, log)
+	if err := collector.Start(); err != nil {
+		log.Error(err, "Failed to start the collector")
+		stdlog.Fatalf("Fatal error: %v", err)
+	}
+	defer collector.Stop()
+
+	log.Info("Application is running. Press Ctrl+C to exit.")
+	// TODO: Add OS signal handling for graceful shutdown
+	select {} // Infinite blocking
 }

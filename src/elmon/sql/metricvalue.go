@@ -8,12 +8,11 @@ import (
 	"fmt"
 	"strings"
 	"time"
-	// _ "github.com/lib/pq" (Assumed to be imported in the main package or here)
 )
 
-// ExecuteScriptWithTimeout executes an SQL script with a specified timeout.
+// ExecuteMetricValueGetScript executes an SQL script with a specified timeout
 // The function strictly checks that the query returns exactly one row
-// containing exactly one column of type JSONB or JSON.
+// containing exactly one column of type JSONB or JSON
 func ExecuteMetricValueGetScript(db *sql.DB, script string, timeout time.Duration) (json.RawMessage, error) {
 	// 1. Create a context with the timeout
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
@@ -77,26 +76,24 @@ func ExecuteMetricValueGetScript(db *sql.DB, script string, timeout time.Duratio
 	return json.RawMessage(jsonbResult), nil
 }
 
-
-
-// InsertMetricValue выполняет вставку записи метрики в таблицу metric_value.
-func InsertMetricValue(log *logger.Logger, db *sql.DB, metricId int, serverId int, value json.RawMessage) error{
-	// Проверка на инициализацию соединения
+// InsertMetricValue inserts metric record into metric_value table
+func InsertMetricValue(log *logger.Logger, db *sql.DB, metricId int, serverId int, value json.RawMessage) error {
+	// Check for initialized connection
 	if db == nil {
 		err := fmt.Errorf("database connection (DB) is nil. Cannot insert metric: serverId=%d, metricId=%d", serverId, metricId)
-		log.Error(err,"Failed to insert metric")
+		log.Error(err, "Failed to insert metric")
 		return err
 	}
 
-	// SQL-запрос для вставки
+	// SQL query for insertion
 	const insertSQL = `
 		INSERT INTO metric_value (time, server_id, metric_id, metric_value)
 		VALUES (NOW(), $1, $2, $3);
 	`
 
-	// Выполняем запрос
+	// Execute query
 	_, err := db.Exec(insertSQL, serverId, metricId, value)
-	
+
 	if err != nil {
 		log.Error(err, fmt.Sprintf("failed to insert metric: serverId=%d, metricId=%d", serverId, metricId))
 		return err
