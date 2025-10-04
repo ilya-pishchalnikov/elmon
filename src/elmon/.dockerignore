@@ -1,0 +1,11 @@
+#version control
+.git
+.gitignore
+
+#documentation and temporary files
+*.md
+.idea
+*.vscode
+
+#environment files
+.env

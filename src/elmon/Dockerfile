@@ -16,7 +16,7 @@ COPY . .
 RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o /app/elmon .
 
 # Production stage: Use lightweight image for production
-FROM alpine:latest
+FROM alpine:3.20
 
 WORKDIR /app
 
@@ -25,7 +25,6 @@ COPY --from=builder /app/elmon .
 
 # Copy config file
 COPY --from=builder app/config.yaml ./
-COPY --from=builder app/.env ./
 
 # Copy sql scripts
 COPY --from=builder app/sql/script ./sql/script
@@ -34,16 +33,7 @@ COPY --from=builder app/sql/script ./sql/script
 EXPOSE 8080
 
 # Create and set entrypoint
-RUN echo '#!/bin/sh\n\
-if [ "$ELMON_DEBUG" = "1" ]; then\n\
-    echo "ELMON_DEBUG mode - container started but application not running"\n\
-    echo "You can exec into container with: docker exec -it <container> /bin/sh"\n\
-    echo "Files in /app:" && ls -la /app/\n\
-    tail -f /dev/null\n\
-else\n\
-    exec ./elmon\n\
-fi' > /entrypoint.sh && chmod +x /entrypoint.sh
+COPY --from=builder app/entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
 
-EXPOSE 8080
-
-ENTRYPOINT ["app/entrypoint.sh"]
+ENTRYPOINT ["/entrypoint.sh"]
