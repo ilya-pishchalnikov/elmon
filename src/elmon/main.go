@@ -69,6 +69,8 @@ func main() {
 		URL:     appConfig.Grafana.Url,
 		Token:   appConfig.Grafana.Token,
 		Timeout: appConfig.Grafana.Timeout,
+		Retries: 10,
+		RetryDelay: 5, // seconds
 	}
 	grafanaClient := grafana.NewClient(grafanaParams)
 
