@@ -34,7 +34,15 @@ db-servers:
     port: 5432
     user: "${METRICS_TEST_DB_USER}"
     password: "${METRICS_TEST_DB_PASSWORD}"
-    DbName: "application"
+    dbname: "application"
+  - # metrics server (self monitoring)
+    name: "metrics"
+    environment: "metrics-collector"
+    host: "elmon-postgres-main"
+    port: 5432
+    user: "${METRICS_DB_USER}"
+    password: "${METRICS_DB_PASSWORD}"
+    dbname: "metrics"
 
 # ======================================================
 # Section from: configmetrics.yaml
@@ -65,6 +73,47 @@ metrics:
           sql-file: sql/script/metrics/database_perfomance/total_tx.sql
           interval: 5s
           max-retries: 0
+        - name: db_uptime
+          value-type: int64
+          collection-type: go_func
+          go-function: "collectPostgresUptime"
+          interval: 10s
+          max-retries: 3
+          retry-delay: 2s
+          query-timeout: 10s
+          unit: "seconds"
+        - name: total_execution_time
+          value-type: table
+          collection-type: sql
+          sql-file: sql/script/metrics/database_perfomance/total_execution_time.sql
+          interval: 10s
+          max-retries: 5
+          query-timeout: 10s
+          unit: "table"
+        - name: connection_count
+          value-type: table
+          collection-type: sql
+          sql-file: sql/script/metrics/database_perfomance/connection_count.sql
+          interval: 10s
+          max-retries: 5
+          query-timeout: 10s
+          unit: "table"
+        - name: wait
+          value-type: table
+          collection-type: sql
+          sql-file: sql/script/metrics/database_perfomance/wait.sql
+          interval: 10s
+          max-retries: 5
+          query-timeout: 10s
+          unit: "table"
+        - name: wait_locks
+          value-type: table
+          collection-type: sql
+          sql-file: sql/script/metrics/database_perfomance/wait_locks.sql
+          interval: 10s
+          max-retries: 5
+          query-timeout: 10s
+          unit: "table"
     - name: system_health
       description: Operating system health metrics
       enabled: true
@@ -97,3 +146,22 @@ servers-metrics-map:
         query-timeout: 5s
       - name: total_transactions
         query-timeout: 5s
+      - name: db_uptime
+      - name: total_execution_time
+      - name: connection_count
+      - name: wait_locks
+      - name: wait
+  - name: metrics
+    metrics:
+      - name: cache_hit_ratio
+        interval: 10s
+        max-retries: 0
+        retry-delay: 0s
+        query-timeout: 5s
+      - name: total_transactions
+        query-timeout: 5s
+      - name: db_uptime
+      - name: total_execution_time
+      - name: connection_count
+      - name: wait_locks
+      - name: wait
