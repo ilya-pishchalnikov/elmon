@@ -55,9 +55,30 @@ type DbConnectionConfig struct {
 
 // GrafanaConfig defines Grafana connection parameters
 type GrafanaConfig struct {
-	Url     string `mapstructure:"url"`
-	Token   string `mapstructure:"token"`
-	Timeout int    `mapstructure:"timeout"` // in seconds, default: 30
+	Url        string             `mapstructure:"url"`
+	Token      string             `mapstructure:"token"`
+	Timeout    int                `mapstructure:"timeout"` // in seconds, default: 30
+	DataSource *GrafanaDataSource `mapstrurcture:"datasource"`
+	Dashboard  *GrafanaDashboard  `mapstrucrure:"dashboard"`
+}
+
+//Grafana data source config
+type GrafanaDataSource struct {
+	Name     string `mapstructure:"name"`    // Data Source Name 
+	URL      string `mapstructure:"url"`	 // Host:Port
+	Database string `mapstructure:"database"`// Database Name
+	User     string `mapstructure:"user"`     
+	Password string `mapstructure:"password"`
+	SSLMode  string `mapstructure:"ssl-mode"`// disable or require, default disable
+}
+
+//Grafana dashboard config
+type GrafanaDashboard struct {
+	Name      string `mapstructure:"name"`     // Dashboard name 
+	File      string `mapstructure:"file"`     // Dashboard json file path
+	Input     string `mapstructure:"input"`    // Data source input variable name
+	Overwrite bool   `mapstructure:"overwrite"`
+
 }
 
 // MetricsConfig represents configuration for metrics collection
@@ -294,6 +315,54 @@ func (c *GrafanaConfig) Validate() error {
 	}
 	if c.Timeout <= 0 {
 		return fmt.Errorf("timeout must be positive: %d", c.Timeout)
+	}
+	if c.DataSource == nil {
+		return fmt.Errorf("there is no grafana data source section")
+	}
+	if c.Dashboard == nil {
+		return fmt.Errorf("there is no grafana dashboard section")
+	}
+	if err:=c.DataSource.Validate();err!=nil{
+		return err
+	}
+
+	return nil
+}
+
+func (c *GrafanaDataSource) Validate() error {
+	if c.Name == "" {
+		return fmt.Errorf("datasource name is required")
+	}
+	if c.URL == "" {
+		return fmt.Errorf("datasource URL is required")
+	}
+	if c.Database == "" {
+		return fmt.Errorf("datasource database is required")
+	}
+	if c.User == "" {
+		return fmt.Errorf("datasource user is required")
+	}
+	if c.Password == "" {
+		return fmt.Errorf("datasource password is required")
+	}
+	if c.SSLMode == "" {
+		c.SSLMode = "disable"
+	}
+	if c.SSLMode != "disable" && c.SSLMode != "required" {
+		return fmt.Errorf("datasource ssl mode should be disabled or required")
+	}
+	return nil
+}
+
+func (c *GrafanaDashboard) Validate() error {
+	if c.Name == "" {
+		return fmt.Errorf("dashboard name is required")
+	}
+	if c.File == "" {
+		return fmt.Errorf("dashboard file name is required")
+	}
+	if c.Input == "" {
+		return fmt.Errorf("dashboard input datasource variable name is required")
 	}
 	return nil
 }

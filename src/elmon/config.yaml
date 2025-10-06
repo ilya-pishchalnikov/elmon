@@ -22,6 +22,19 @@ metrics-db:
 grafana:
   url: "http://elmon-grafana:3000"
   token: "${METRICS_GRAFANA_TOKEN}"
+  datasource:
+    name: elmon_metrics
+    url: elmon-postgres-main:5432
+    database: metrics
+    user: ${METRICS_DB_USER}
+    password: "${METRICS_DB_PASSWORD}"
+    ssl-mode: disable
+  dashboard:
+    name: elmon
+    file: "./grafana/dashboards/elmon.json"
+    input: DS_ELMON_METRICS
+    overwrite: true
+
 
 # ======================================================
 # Section from: configservers.yaml

@@ -76,11 +76,28 @@ services:
             - postgres-monitoring
         networks:
             - elmon_network
+            
+    grafana-target:
+        image: grafana/grafana:latest
+        container_name: elmon-grafana-target
+        ports:
+            - "3001:3000"
+        environment:
+            GF_SECURITY_ADMIN_USER: admin
+            GF_SECURITY_ADMIN_PASSWORD: ${GF_ADMIN_PASSWORD}
+        volumes:
+            - grafana_target_data:/var/lib/grafana
+            - ./src/grafana/dashboards:/etc/grafana/dashboards
+        depends_on:
+            - postgres-monitoring
+        networks:
+            - elmon_network
 
 volumes:
     postgres_data:
     postgres_target_data:
     grafana_data:
+    grafana_target_data:
 
 networks:
     elmon_network:

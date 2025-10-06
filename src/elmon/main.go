@@ -6,9 +6,12 @@ import (
 	"elmon/grafana"
 	"elmon/logger"
 	"elmon/sql"
+	"fmt"
 	stdlog "log"
 	"log/slog"
 	"os"
+
+	"github.com/google/uuid"
 )
 
 func main() {
@@ -84,6 +87,58 @@ func main() {
 	if response != nil && response.Body != nil {
 		defer response.Body.Close()
 	}
+
+	//grafanaDataSources, err := grafanaClient.GetDataSources(log)
+
+
+	pgModel := grafana.PostgreSQLDataSourceModel{
+		Name:      appConfig.Grafana.DataSource.Name,
+		Type:      "grafana-postgresql-datasource",
+		Access:    "direct",
+		URL:       appConfig.Grafana.DataSource.URL,
+		Database:  appConfig.Grafana.DataSource.Database,
+		User:      appConfig.Grafana.DataSource.User,
+		Password:  appConfig.Grafana.DataSource.Password,
+		SSLMode:   appConfig.Grafana.DataSource.SSLMode,
+		IsDefault: false, 
+	}
+
+	datasourceResponce, err := grafanaClient.AddDataSourceIfNotExists(log, pgModel)
+	if err != nil {
+		log.Error(err, "failed to add datasource")
+		return
+	}
+
+	// isHealthy, err := grafanaClient.IsDataSourceHealthy(log, datasourceResponce.UID)
+	// if err != nil {
+	// 	stdlog.Fatal(err)
+	// }
+	// if !isHealthy{
+	// 	stdlog.Fatal(fmt.Errorf("Connection %s is not healthy", datasourceResponce.Name))
+	// }
+	
+
+	dashboardJSON, err := grafana.LoadDashboardFromFile(appConfig.Grafana.Dashboard.File)
+	if err != nil {
+		stdlog.Fatal(err)
+	}
+
+	preparedJSON, err := grafana.PrepareDashboardForImport(dashboardJSON, appConfig.Grafana.Dashboard.Name, uuid.New().String(), datasourceResponce.UID)
+	if err != nil {
+		stdlog.Fatal(err)
+	}
+
+	inputValues := map[string]string{
+        appConfig.Grafana.Dashboard.Input: datasourceResponce.UID,
+    }
+
+	dasboardImportResponce, err := grafanaClient.ImportDashboard(log, preparedJSON, "", false, inputValues)
+	if err != nil {
+		stdlog.Fatal(err)
+	}
+
+	log.Info(fmt.Sprintf("Dashboard imported: %s", dasboardImportResponce.URL))
+
 
 	// 5. Save metrics configuration to database
 	metricsForDB := &sql.MetricConfigForDB{}
